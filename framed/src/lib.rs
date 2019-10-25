@@ -3,6 +3,8 @@
 
 mod socket;
 
+#[macro_use]
+extern crate log;
 extern crate tokio;
 #[macro_use]
 extern crate futures;

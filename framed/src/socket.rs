@@ -57,9 +57,13 @@ impl Stream for DhcpFramed {
     /// `io::Error` on a socket error.
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         let (amount, addr) = try_ready!(self.socket.poll_recv_from(&mut self.buf_read));
+        trace!("{} bytes from {}", amount, addr);
         match Message::from_bytes(&self.buf_read[..amount]) {
             Ok(frame) => Ok(Async::Ready(Some((addr, frame)))),
-            Err(_) => Ok(Async::Ready(None)),
+            Err(e) => {
+                debug!("Ignoring message: {:?}", e);
+                Ok(Async::Ready(None))
+            }
         }
     }
 }
