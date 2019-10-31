@@ -14,6 +14,7 @@ hostname = "0.1.5"
 rand = "0.6.1"
 dhcp-protocol = { path = "../protocol" }
 dhcp-framed = { path = "../framed" }
+switchable-socket = { path = "../switchable_socket"}
 net2 = "0.2.33"
 
 [dev-dependencies]

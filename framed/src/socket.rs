@@ -3,9 +3,10 @@
 use std::net::SocketAddr;
 
 use futures::StartSend;
-use tokio::{io, net::UdpSocket, prelude::*};
+use tokio::{io, prelude::*};
 
 use dhcp_protocol::*;
+use switchable_socket::{SwitchableUdpSocket, ModeSwitch, MakeSocket, SocketMode, UdpAsyncReadWrite};
 
 /// Must be enough to decode all the options.
 pub const BUFFER_READ_CAPACITY: usize = 8192;
@@ -15,9 +16,9 @@ pub const BUFFER_WRITE_CAPACITY: usize = 8192;
 /// The modified version of the `tokio::UdpFramed`.
 ///
 /// Works with high level DHCP messages.
-pub struct DhcpFramed {
+pub struct DhcpFramed<S> {
     /// `tokio::UdpSocket`.
-    socket: UdpSocket,
+    socket: S,
     /// Stores received data and is used for deserialization.
     buf_read: Vec<u8>,
     /// Stores pending data and is used for serialization.
@@ -29,13 +30,13 @@ pub struct DhcpFramed {
 pub type DhcpStreamItem = (SocketAddr, Message);
 pub type DhcpSinkItem = (SocketAddr, (Message, Option<u16>));
 
-impl DhcpFramed {
+impl<S> DhcpFramed<S> {
     /// Binds to `addr` and returns a `Stream+Sink` UDP socket abstraction.
     ///
     /// # Errors
     /// `io::Error` on unsuccessful socket building or binding.
     #[allow(unused_variables)]
-    pub fn new(socket: UdpSocket) -> io::Result<Self> {
+    pub fn new(socket: S) -> io::Result<Self> {
         Ok(DhcpFramed {
             socket,
             buf_read: vec![0u8; BUFFER_READ_CAPACITY],
@@ -45,7 +46,23 @@ impl DhcpFramed {
     }
 }
 
-impl Stream for DhcpFramed {
+impl<R, U, MR, MU> ModeSwitch for DhcpFramed<SwitchableUdpSocket<R, U, MR, MU>>
+where
+    MR: MakeSocket<Socket = R>,
+    MU: MakeSocket<Socket = U>,
+{
+    fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error> {
+        self.socket.switch_to(mode)
+    }
+    fn mode(&self) -> SocketMode {
+        self.socket.mode()
+    }
+}
+
+impl<S> Stream for DhcpFramed<S>
+where
+    S: UdpAsyncReadWrite,
+{
     type Item = DhcpStreamItem;
     type Error = io::Error;
 
@@ -64,7 +81,10 @@ impl Stream for DhcpFramed {
     }
 }
 
-impl Sink for DhcpFramed {
+impl<S> Sink for DhcpFramed<S>
+where
+    S: UdpAsyncReadWrite,
+{
     type SinkItem = DhcpSinkItem;
     type SinkError = io::Error;
 
@@ -79,6 +99,8 @@ impl Sink for DhcpFramed {
             return Ok(AsyncSink::NotReady(item));
         }
 
+        // TODO: some DHCP servers drop packets above 576 ethernet octets (562 IP octects)
+        // and DFC 1542 requires the minimum packet size of 300 BOOTP bytes.
         let (addr, (message, max_size)) = item;
         let amount = message.to_bytes(&mut self.buf_write, max_size)?;
         self.pending = Some((addr, amount));

@@ -21,5 +21,6 @@ extern crate rand;
 
 extern crate dhcp_framed;
 extern crate dhcp_protocol;
+extern crate switchable_socket;
 
 pub use self::client::{Client, Command, Configuration};

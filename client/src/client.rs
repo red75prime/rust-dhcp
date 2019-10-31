@@ -8,6 +8,7 @@ use hostname;
 use tokio::{io, prelude::*};
 
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
+use switchable_socket::{ModeSwitch, SocketMode};
 
 use builder::MessageBuilder;
 use state::{DhcpState, State};
@@ -78,22 +79,17 @@ type DhcpStreamItem = (SocketAddr, Message);
 type DhcpSinkItem = (SocketAddr, (Message, Option<u16>));
 
 /// The struct implementing the `Future` trait.
-pub struct Client<I, O>
-where
-    I: Stream<Item = DhcpStreamItem, Error = io::Error> + Send + Sync,
-    O: Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
+pub struct Client<S>
 {
-    stream: I,
-    sink: O,
+    io: S,
     builder: MessageBuilder,
     state: State,
     options: RequestOptions,
 }
 
-impl<I, O> Client<I, O>
+impl<IO> Client<IO>
 where
-    I: Stream<Item = DhcpStreamItem, Error = io::Error> + Send + Sync,
-    O: Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
 {
     /// Creates a client future.
     ///
@@ -142,8 +138,7 @@ where
     /// The maximum DHCP message size.
     ///
     pub fn new(
-        stream: I,
-        sink: O,
+        io: IO,
         client_hardware_address: MacAddress,
         client_id: Option<Vec<u8>>,
         hostname: Option<String>,
@@ -184,8 +179,7 @@ where
         let state = State::new(dhcp_state, server_address, false);
 
         Client {
-            stream,
-            sink,
+            io,
             builder,
             state,
             options,
@@ -224,15 +218,14 @@ where
         log_send!(request, destination);
 
         let destination = SocketAddr::new(IpAddr::V4(destination), DHCP_PORT_SERVER);
-        start_send!(self.sink, destination, (request, None));
+        start_send!(self.io, destination, (request, None));
         Ok(())
     }
 }
 
-impl<I, O> Stream for Client<I, O>
+impl<IO> Stream for Client<IO>
 where
-    I: Stream<Item = DhcpStreamItem, Error = io::Error> + Send + Sync,
-    O: Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
 {
     type Item = Configuration;
     type Error = io::Error;
@@ -287,7 +280,7 @@ where
     /// [RFC 2131](https://tools.ietf.org/html/rfc2131)
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
         loop {
-            poll_complete!(self.sink);
+            poll_complete!(self.io);
 
             match self.state.dhcp_state() {
                 current @ DhcpState::Init => {
@@ -297,7 +290,7 @@ where
                     The client MAY suggest a network address and/or lease time by including
                     the 'requested IP address' and 'IP address lease time' options.
                     */
-
+                    self.io.switch_to(SocketMode::Raw)?;
                     self.state.transcend(current, DhcpState::Selecting, None);
                 }
                 current @ DhcpState::Selecting => {
@@ -321,7 +314,7 @@ where
                         .transcend(current, DhcpState::SelectingSent, None);
                 }
                 current @ DhcpState::SelectingSent => {
-                    let (addr, response) = match self.stream.poll() {
+                    let (addr, response) = match self.io.poll() {
                         Ok(Async::Ready(Some(data))) => data,
                         Ok(Async::Ready(None)) => {
                             warn!("Received an invalid packet");
@@ -365,7 +358,7 @@ where
                         .transcend(current, DhcpState::RequestingSent, None);
                 }
                 current @ DhcpState::RequestingSent => {
-                    let (addr, response) = match self.stream.poll() {
+                    let (addr, response) = match self.io.poll() {
                         Ok(Async::Ready(Some(data))) => data,
                         Ok(Async::Ready(None)) => {
                             warn!("Received an invalid packet");
@@ -415,7 +408,7 @@ where
                     message.  The client MUST insert its known network address as a
                     'requested IP address' option in the DhcpRequest message.
                     */
-
+                    self.io.switch_to(SocketMode::Raw);
                     self.state.transcend(current, DhcpState::Rebooting, None);
                 }
                 current @ DhcpState::Rebooting => {
@@ -438,7 +431,7 @@ where
                         .transcend(current, DhcpState::RebootingSent, None);
                 }
                 current @ DhcpState::RebootingSent => {
-                    let (addr, response) = match self.stream.poll() {
+                    let (addr, response) = match self.io.poll() {
                         Ok(Async::Ready(Some(data))) => data,
                         Ok(Async::Ready(None)) => {
                             warn!("Received an invalid packet");
@@ -492,7 +485,7 @@ where
                     client MUST NOT include a 'server identifier' in the DHCPREQUEST
                     message.
                     */
-
+                    self.io.switch_to(SocketMode::Udp)?;
                     poll_delay!(self.state.timer_renewal);
                     self.state.transcend(current, DhcpState::Renewing, None);
                 }
@@ -517,7 +510,7 @@ where
                     self.state.transcend(current, DhcpState::RenewingSent, None);
                 }
                 current @ DhcpState::RenewingSent => {
-                    let (addr, response) = match self.stream.poll() {
+                    let (addr, response) = match self.io.poll() {
                         Ok(Async::Ready(Some(data))) => data,
                         Ok(Async::Ready(None)) => {
                             warn!("Received an invalid packet");
@@ -572,7 +565,7 @@ where
                         .transcend(current, DhcpState::RebindingSent, None);
                 }
                 current @ DhcpState::RebindingSent => {
-                    let (addr, response) = match self.stream.poll() {
+                    let (addr, response) = match self.io.poll() {
                         Ok(Async::Ready(Some(data))) => data,
                         Ok(Async::Ready(None)) => {
                             warn!("Received an invalid packet");
@@ -607,10 +600,9 @@ where
     }
 }
 
-impl<I, O> Sink for Client<I, O>
+impl<IO> Sink for Client<IO>
 where
-    I: Stream<Item = DhcpStreamItem, Error = io::Error> + Send + Sync,
-    O: Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
 {
     type SinkItem = Command;
     type SinkError = io::Error;
@@ -681,7 +673,7 @@ where
         };
 
         log_send!(request, destination);
-        match self.sink.start_send((destination, (request, None))) {
+        match self.io.start_send((destination, (request, None))) {
             Ok(AsyncSink::Ready) => Ok(AsyncSink::Ready),
             Ok(AsyncSink::NotReady(_item)) => Ok(AsyncSink::NotReady(command)),
             Err(error) => Err(error),
@@ -690,7 +682,7 @@ where
 
     /// Just a proxy.
     fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.sink.poll_complete()
+        self.io.poll_complete()
     }
 
     /// Just a proxy.

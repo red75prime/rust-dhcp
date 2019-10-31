@@ -4,5 +4,6 @@ members = [
     "client",
     "protocol",
     "framed",
+    "switchable_socket",
     "arp",
 ]

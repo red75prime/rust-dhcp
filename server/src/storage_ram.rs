@@ -61,7 +61,7 @@ impl Storage for RamStorage {
     fn update_lease(
         &mut self,
         client_id: &[u8],
-        action: &mut FnMut(&mut Lease) -> (),
+        action: &mut dyn FnMut(&mut Lease) -> (),
     ) -> Result<(), Error> {
         if let Some(ref mut lease) = self.client_lease_map.get_mut(client_id) {
             action(lease);

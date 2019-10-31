@@ -134,7 +134,7 @@ where
     S: Storage,
 {
     /// The server UDP socket.
-    socket: DhcpFramed,
+    socket: DhcpFramed<UdpSocket>,
     /// The IP address the server is hosted on.
     server_ip_address: Ipv4Addr,
     /// The interface the server works on.
@@ -175,7 +175,9 @@ where
         let socket = UdpSocket::bind(&addr)?;
         socket.set_broadcast(true)?;
 
-        let socket = DhcpFramed::new(socket)?;
+        // Older Rust versions hadn't allowed method calls on type aliases
+        // so it's `DhcpFramed::<UdpSocket>`, and not a type alias
+        let socket = DhcpFramed::<UdpSocket>::new(socket)?;
         let hostname = hostname::get_hostname();
 
         let builder = MessageBuilder::new(
