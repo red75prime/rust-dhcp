@@ -84,11 +84,11 @@ impl RawUdpSocketV4 {
                 }
             }
             Ok(packet) => {
-                println!("Ignoring {:?}", packet);
+                trace!("Ignoring {:?}", packet);
             }
             _ => {
                 // Ignore
-                println!("Ignoring ill-formed packet");
+                trace!("Ignoring ill-formed packet");
             }
         };
         self.io.clear_read_ready(mio::Ready::readable())?;
