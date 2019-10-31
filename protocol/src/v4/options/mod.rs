@@ -16,10 +16,6 @@ use std::net::Ipv4Addr;
 /// [RFC 3442](https://tools.ietf.org/html/rfc3442)
 #[derive(Default)]
 pub struct Options {
-    /*
-    RFC 2132
-    */
-    // RFC 1497 Vendor Extensions (RFC 2132 §3)
     pub subnet_mask: Option<Ipv4Addr>,
     pub time_offset: Option<u32>,
     pub routers: Option<Vec<Ipv4Addr>>,
@@ -94,10 +90,6 @@ pub struct Options {
     pub netware_ip_domain: Option<Vec<u8>>,
     pub netware_ip_option: Option<Vec<u8>>,
 
-    /*
-    RFC 2132 (continuation)
-    */
-    // Application and Service Parameters (RFC 2132 §8) (continuation)
     pub nis_v3_domain_name: Option<String>,
     pub nis_v3_servers: Option<Vec<Ipv4Addr>>,
     pub server_name: Option<String>,

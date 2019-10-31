@@ -1,17 +1,16 @@
 use futures::Poll;
-use std::{
-    net::SocketAddrV4,
-};
-use tokio::{
-    io,
-    reactor::Handle,
-};
+use std::net::SocketAddrV4;
+use tokio::{io, reactor::Handle};
 
-pub struct RawUdpSocketV4 {
-}
+pub struct RawUdpSocketV4 {}
 
 impl RawUdpSocketV4 {
-    pub fn new(_iface: &str, _port: u16, _max_packet_size: usize, _handle: &Handle) -> Result<RawUdpSocketV4, io::Error> {
+    pub fn new(
+        _iface: &str,
+        _port: u16,
+        _max_packet_size: usize,
+        _handle: &Handle,
+    ) -> Result<RawUdpSocketV4, io::Error> {
         unimplemented!()
     }
 

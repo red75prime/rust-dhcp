@@ -1,13 +1,12 @@
 //! The Linux implementation using SIOCSARP syscall.
 
 use std::{
-    cmp,
-    mem,
+    cmp, mem,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     ptr,
 };
 
-use eui48::{EUI48LEN, MacAddress};
+use eui48::{MacAddress, EUI48LEN};
 use libc::{self, arpreq, c_char, c_int, c_ushort};
 use nix::{
     self,
@@ -65,7 +64,8 @@ pub(crate) fn add(hwaddr: MacAddress, ip: Ipv4Addr, iface: String) -> Result<sup
         SockType::Datagram,
         SockFlag::empty(),
         None,
-    ).map_err(|error| Error::Socket(error))?;
+    )
+    .map_err(|error| Error::Socket(error))?;
 
     unsafe { siocsarp(fd, &req) }.map_err(|error| Error::Syscall(error))?;
 

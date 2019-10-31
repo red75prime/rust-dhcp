@@ -6,7 +6,7 @@ use std::{
     net::Ipv4Addr,
 };
 
-use eui48::{EUI48LEN, MacAddress};
+use eui48::{MacAddress, EUI48LEN};
 use futures_cpupool::CpuPool;
 use ifcontrol::{self, Iface};
 use netif_bpf::Bpf;
@@ -124,8 +124,9 @@ impl BpfData {
         let builder = PacketBuilder::ethernet2(
             *array_ref!(src_mac.as_bytes(), 0, EUI48LEN),
             *array_ref!(dst_mac.as_bytes(), 0, EUI48LEN),
-        ).ipv4(src_ip.octets(), dst_ip.octets(), DEFAULT_IP_TTL)
-            .udp(DHCP_PORT_SERVER, DHCP_PORT_CLIENT);
+        )
+        .ipv4(src_ip.octets(), dst_ip.octets(), DEFAULT_IP_TTL)
+        .udp(DHCP_PORT_SERVER, DHCP_PORT_CLIENT);
 
         let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
         match builder.write(&mut result, payload) {

@@ -213,7 +213,8 @@ where
         }
 
         // address allocation case 4, giaddr stuff not implemented
-        let address = self.get_dynamic_available()?
+        let address = self
+            .get_dynamic_available()?
             .ok_or(Error::DynamicPoolExhausted)?;
         let lease_time = self.offer(&address, client_id, lease_time, false)?;
         let offer = Offer {
@@ -393,11 +394,10 @@ where
     }
 
     fn is_address_available(&self, address: &Ipv4Addr) -> Result<bool, Error> {
-        Ok(
-            !self.is_address_allocated(address)? && !self.is_address_frozen(address)?
-                && (self.is_address_in_static_pool(address)
-                    || self.is_address_in_dynamic_pool(address)),
-        )
+        Ok(!self.is_address_allocated(address)?
+            && !self.is_address_frozen(address)?
+            && (self.is_address_in_static_pool(address)
+                || self.is_address_in_dynamic_pool(address)))
     }
 
     fn is_address_allocated(&self, address: &Ipv4Addr) -> Result<bool, Error> {

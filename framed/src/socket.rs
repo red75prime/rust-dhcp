@@ -6,7 +6,9 @@ use futures::StartSend;
 use tokio::{io, prelude::*};
 
 use dhcp_protocol::*;
-use switchable_socket::{SwitchableUdpSocket, ModeSwitch, MakeSocket, SocketMode, UdpAsyncReadWrite};
+use switchable_socket::{
+    MakeSocket, ModeSwitch, SocketMode, SwitchableUdpSocket, UdpAsyncReadWrite,
+};
 
 /// Must be enough to decode all the options.
 pub const BUFFER_READ_CAPACITY: usize = 8192;

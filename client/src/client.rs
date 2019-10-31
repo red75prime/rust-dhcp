@@ -79,8 +79,7 @@ type DhcpStreamItem = (SocketAddr, Message);
 type DhcpSinkItem = (SocketAddr, (Message, Option<u16>));
 
 /// The struct implementing the `Future` trait.
-pub struct Client<S>
-{
+pub struct Client<S> {
     io: S,
     builder: MessageBuilder,
     state: State,
@@ -89,7 +88,11 @@ pub struct Client<S>
 
 impl<IO> Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
+        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+        + ModeSwitch
+        + Send
+        + Sync,
 {
     /// Creates a client future.
     ///
@@ -225,7 +228,11 @@ where
 
 impl<IO> Stream for Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
+        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+        + ModeSwitch
+        + Send
+        + Sync,
 {
     type Item = Configuration;
     type Error = io::Error;
@@ -602,7 +609,10 @@ where
 
 impl<IO> Sink for Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
+        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+        + Send
+        + Sync,
 {
     type SinkItem = Command;
     type SinkError = io::Error;

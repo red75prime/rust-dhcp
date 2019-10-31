@@ -28,25 +28,30 @@ use tokio::prelude::*;
 use tokio::reactor::Handle;
 
 use dhcp_client::{Client, Command};
-use dhcp_framed::{DhcpFramed, DhcpSinkItem, DhcpStreamItem, BUFFER_READ_CAPACITY, BUFFER_WRITE_CAPACITY};
+use dhcp_framed::{
+    DhcpFramed, DhcpSinkItem, DhcpStreamItem, BUFFER_READ_CAPACITY, BUFFER_WRITE_CAPACITY,
+};
 use dhcp_protocol::{DHCP_PORT_CLIENT, SIZE_MESSAGE_MINIMAL};
-use switchable_socket::{ModeSwitch};
-#[cfg(target_os = "linux")]
-use switchable_socket::linux;
+use net2::UdpBuilder;
 #[cfg(not(target_os = "linux"))]
 use switchable_socket::dummy;
-use net2::UdpBuilder;
+#[cfg(target_os = "linux")]
+use switchable_socket::linux;
+use switchable_socket::ModeSwitch;
 use tokio::net::UdpSocket;
 
-struct SuperClient<IO>
-{
+struct SuperClient<IO> {
     inner: Client<IO>,
     counter: u64,
 }
 
 impl<IO> SuperClient<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
+        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+        + ModeSwitch
+        + Send
+        + Sync,
 {
     pub fn new(client: Client<IO>) -> Self {
         SuperClient {
@@ -58,7 +63,11 @@ where
 
 impl<IO> Future for SuperClient<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error> + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error> + ModeSwitch + Send + Sync,
+    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
+        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+        + ModeSwitch
+        + Send
+        + Sync,
 {
     type Item = ();
     type Error = io::Error;
@@ -95,10 +104,12 @@ fn main() {
     #[cfg(target_os = "linux")]
     let switchable_socket = {
         let buffer_capacity = std::cmp::max(BUFFER_WRITE_CAPACITY, BUFFER_READ_CAPACITY);
-        linux::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT, buffer_capacity).expect("Cannot create switchable socket")
+        linux::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT, buffer_capacity)
+            .expect("Cannot create switchable socket")
     };
     #[cfg(not(target_os = "linux"))]
-    let switchable_socket = dummy::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT).expect("Cannot create switchable socket");
+    let switchable_socket = dummy::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT)
+        .expect("Cannot create switchable socket");
 
     let dhcp_framed = DhcpFramed::new(switchable_socket).expect("Cannot create DhcpFramed");
 

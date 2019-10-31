@@ -1,14 +1,14 @@
 //! A modified version of `tokio::UdpFramed` socket
 //! designed to work with high level DHCP messages.
 
-mod socket;
+pub mod dummy;
 #[cfg(target_os = "linux")]
 mod impl_linux;
 #[cfg(not(target_os = "linux"))]
 mod impl_not_linux;
 #[cfg(target_os = "linux")]
 pub mod linux;
-pub mod dummy;
+mod socket;
 
 #[macro_use]
 extern crate futures;
@@ -20,4 +20,4 @@ pub use impl_linux::RawUdpSocketV4;
 #[cfg(not(target_os = "linux"))]
 pub use impl_not_linux::RawUdpSocketV4;
 
-pub use socket::{SwitchableUdpSocket, ModeSwitch, MakeSocket, SocketMode, UdpAsyncReadWrite};
+pub use socket::{MakeSocket, ModeSwitch, SocketMode, SwitchableUdpSocket, UdpAsyncReadWrite};

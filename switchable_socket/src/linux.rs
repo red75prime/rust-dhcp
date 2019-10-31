@@ -1,18 +1,14 @@
-use crate::socket::{SwitchableUdpSocket, MakeSocket, SocketMode};
+use crate::socket::{MakeSocket, SocketMode, SwitchableUdpSocket};
 use crate::RawUdpSocketV4;
 use libc;
 use net2::UdpBuilder;
 use std::{
-    net::{SocketAddr, IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     os::unix::io::{AsRawFd, RawFd},
 };
-use tokio::{
-    io,
-    net::UdpSocket,
-    reactor::Handle,
-};
+use tokio::{io, net::UdpSocket, reactor::Handle};
 
-pub struct MakeRaw{
+pub struct MakeRaw {
     pub max_packet_size: usize,
 }
 
@@ -30,11 +26,7 @@ impl MakeSocket for MakeUdp {
     fn make(&mut self, iface: &str, port: u16) -> Result<UdpSocket, io::Error> {
         let socket = UdpBuilder::new_v4()?;
         socket.reuse_address(true)?;
-        let socket = socket
-            .bind(SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                port,
-            ))?;
+        let socket = socket.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))?;
         // Bind to interface
         bind_to_device_raw(socket.as_raw_fd(), iface)?;
         let socket = UdpSocket::from_std(socket, &Handle::default())?;
@@ -60,8 +52,19 @@ pub fn bind_to_device_raw(socket: RawFd, iface_name: &str) -> Result<(), io::Err
     Ok(())
 }
 
-pub type LinuxSwitchableUdpSocket = SwitchableUdpSocket<RawUdpSocketV4, UdpSocket, MakeRaw, MakeUdp>;
+pub type LinuxSwitchableUdpSocket =
+    SwitchableUdpSocket<RawUdpSocketV4, UdpSocket, MakeRaw, MakeUdp>;
 
-pub fn switchable_udp_socket(iface: &str, port: u16, max_packet_size: usize) -> Result<LinuxSwitchableUdpSocket, io::Error> {
-    SwitchableUdpSocket::new(iface, port, SocketMode::Raw, MakeRaw { max_packet_size }, MakeUdp)
+pub fn switchable_udp_socket(
+    iface: &str,
+    port: u16,
+    max_packet_size: usize,
+) -> Result<LinuxSwitchableUdpSocket, io::Error> {
+    SwitchableUdpSocket::new(
+        iface,
+        port,
+        SocketMode::Raw,
+        MakeRaw { max_packet_size },
+        MakeUdp,
+    )
 }

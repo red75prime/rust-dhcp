@@ -3,7 +3,7 @@
 use std::{io, mem, net::Ipv4Addr};
 
 use bytes::Buf;
-use eui48::{EUI48LEN, MacAddress};
+use eui48::{MacAddress, EUI48LEN};
 
 use super::{
     constants::*,

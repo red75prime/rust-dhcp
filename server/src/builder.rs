@@ -194,9 +194,11 @@ impl MessageBuilder {
         for tag in parameter_list {
             match (*tag).into() {
                 OptionTag::SubnetMask => options.subnet_mask = Some(self.subnet_mask),
-                OptionTag::DomainNameServers => if self.domain_name_servers.len() > 0 {
-                    options.domain_name_servers = Some(self.domain_name_servers.to_owned());
-                },
+                OptionTag::DomainNameServers => {
+                    if self.domain_name_servers.len() > 0 {
+                        options.domain_name_servers = Some(self.domain_name_servers.to_owned());
+                    }
+                }
 
                 /*
                 RFC 3442
@@ -212,23 +214,28 @@ impl MessageBuilder {
                 options to that client, the server SHOULD NOT include the Router or
                 Static Routes options.
                 */
-                OptionTag::ClasslessStaticRoutes => if self.classless_static_routes.len() > 0 {
-                    options.classless_static_routes = Some(self.classless_static_routes.to_owned())
-                },
-                OptionTag::Routers => if (!parameter_list
-                    .contains(&(OptionTag::ClasslessStaticRoutes as u8))
-                    || self.classless_static_routes.len() == 0)
-                    && self.routers.len() > 0
-                {
-                    options.routers = Some(self.routers.to_owned());
-                },
-                OptionTag::StaticRoutes => if (!parameter_list
-                    .contains(&(OptionTag::ClasslessStaticRoutes as u8))
-                    || self.classless_static_routes.len() == 0)
-                    && self.static_routes.len() > 0
-                {
-                    options.static_routes = Some(self.static_routes.to_owned())
-                },
+                OptionTag::ClasslessStaticRoutes => {
+                    if self.classless_static_routes.len() > 0 {
+                        options.classless_static_routes =
+                            Some(self.classless_static_routes.to_owned())
+                    }
+                }
+                OptionTag::Routers => {
+                    if (!parameter_list.contains(&(OptionTag::ClasslessStaticRoutes as u8))
+                        || self.classless_static_routes.len() == 0)
+                        && self.routers.len() > 0
+                    {
+                        options.routers = Some(self.routers.to_owned());
+                    }
+                }
+                OptionTag::StaticRoutes => {
+                    if (!parameter_list.contains(&(OptionTag::ClasslessStaticRoutes as u8))
+                        || self.classless_static_routes.len() == 0)
+                        && self.static_routes.len() > 0
+                    {
+                        options.static_routes = Some(self.static_routes.to_owned())
+                    }
+                }
 
                 _ => continue,
             }

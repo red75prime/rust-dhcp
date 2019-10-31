@@ -1,8 +1,8 @@
 use crate::socket::UdpAsyncReadWrite;
-use futures::{future, Poll, Async};
+use futures::{future, Async, Poll};
 use mio::{event::Evented, unix::EventedFd};
 use std::{
-    net::{SocketAddrV4, SocketAddr},
+    net::{SocketAddr, SocketAddrV4},
     os::unix::io::RawFd,
 };
 use tokio::{
@@ -24,18 +24,28 @@ pub struct RawUdpSocketV4 {
 }
 
 impl RawUdpSocketV4 {
-    pub fn new(iface: &str, port: u16, max_packet_size: usize, handle: &Handle) -> Result<RawUdpSocketV4, io::Error> {
+    pub fn new(
+        iface: &str,
+        port: u16,
+        max_packet_size: usize,
+        handle: &Handle,
+    ) -> Result<RawUdpSocketV4, io::Error> {
         let raw_mio_socket = RawMioSocket::new(iface)?;
         let io = PollEvented2::new_with_handle(raw_mio_socket, handle)?;
         // TODO: something with allocations
         let adjusted_buf_len = max_packet_size + IPV4_HEADER_SIZE_MAX + UDP_HEADER_SIZE;
         let read_buf = vec![0; adjusted_buf_len];
         let write_buf = vec![0; adjusted_buf_len];
-        Ok(RawUdpSocketV4 { io, read_buf, write_buf, port })
+        Ok(RawUdpSocketV4 {
+            io,
+            read_buf,
+            write_buf,
+            port,
+        })
     }
 
     pub fn poll_recv_from_v4(&mut self, buf: &mut [u8]) -> Poll<(usize, SocketAddrV4), io::Error> {
-        use etherparse::{SlicedPacket, InternetSlice, TransportSlice};
+        use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 
         try_ready!(self.io.poll_read_ready(mio::Ready::readable()));
 
@@ -48,7 +58,7 @@ impl RawUdpSocketV4 {
                 self.io.clear_read_ready(mio::Ready::readable())?;
                 return Ok(Async::NotReady);
             }
-            Err(e) =>  {
+            Err(e) => {
                 return Err(e);
             }
         };
@@ -58,7 +68,12 @@ impl RawUdpSocketV4 {
             return Ok(Async::NotReady);
         }
         match &SlicedPacket::from_ip(&self.read_buf[..n]) {
-            Ok(SlicedPacket {ip: Some(InternetSlice::Ipv4(ipv4)), transport: Some(TransportSlice::Udp(udp)), payload, ..} ) => {
+            Ok(SlicedPacket {
+                ip: Some(InternetSlice::Ipv4(ipv4)),
+                transport: Some(TransportSlice::Udp(udp)),
+                payload,
+                ..
+            }) => {
                 if udp.destination_port() == self.port {
                     let payload_len = std::cmp::min(payload.len(), buf.len());
                     buf[..payload_len].copy_from_slice(&payload[..payload_len]);
@@ -89,8 +104,7 @@ impl RawUdpSocketV4 {
             .udp(self.port, target.port());
         let packet_len = builder.size(buf.len());
         let mut write_buf = &mut self.write_buf[..];
-        if let Err(_) = builder.write(&mut write_buf, buf)
-        {
+        if let Err(_) = builder.write(&mut write_buf, buf) {
             self.io.clear_write_ready()?;
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Packet too big"));
         }
@@ -108,16 +122,23 @@ impl RawUdpSocketV4 {
             sll_addr: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0],
         };
         let result = unsafe {
-            libc::sendto(fd, self.write_buf.as_ptr() as *const libc::c_void, packet_len, 0, &sockaddr as *const _ as *const libc::sockaddr, std::mem::size_of_val(&sockaddr) as u32)
+            libc::sendto(
+                fd,
+                self.write_buf.as_ptr() as *const libc::c_void,
+                packet_len,
+                0,
+                &sockaddr as *const _ as *const libc::sockaddr,
+                std::mem::size_of_val(&sockaddr) as u32,
+            )
         };
         if result < 0 {
-                self.io.clear_write_ready()?;
-                let err = io::Error::last_os_error();
-                if err.kind() == io::ErrorKind::WouldBlock {
-                    return Ok(Async::NotReady);
-                } else {
-                    return Err(err);
-                }
+            self.io.clear_write_ready()?;
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::WouldBlock {
+                return Ok(Async::NotReady);
+            } else {
+                return Err(err);
+            }
         };
         Ok(Async::Ready(result as usize))
     }
@@ -131,12 +152,11 @@ impl UdpAsyncReadWrite for RawUdpSocketV4 {
 
     fn poll_send_to(&mut self, buf: &[u8], target: &SocketAddr) -> Poll<usize, io::Error> {
         match target {
-            SocketAddr::V4(target) => {
-                self.poll_send_to_v4(buf, target)
-            }
-            SocketAddr::V6(_) => {
-                Err(io::Error::new(io::ErrorKind::InvalidInput, "IPV6 isn't supported"))
-            }
+            SocketAddr::V4(target) => self.poll_send_to_v4(buf, target),
+            SocketAddr::V6(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "IPV6 isn't supported",
+            )),
         }
     }
 }
@@ -224,19 +244,14 @@ impl RawMioSocket {
             if fcntl(fd, F_SETFD, flags | O_NONBLOCK) != 0 {
                 return Err(io::Error::last_os_error());
             }
-            Ok(RawMioSocket {
-                io: fd,
-                ifindex,
-            })
+            Ok(RawMioSocket { io: fd, ifindex })
         }
     }
 }
 
 impl Drop for RawMioSocket {
     fn drop(&mut self) {
-        let ret = unsafe {
-            libc::close(self.io)
-        };
+        let ret = unsafe { libc::close(self.io) };
         if ret != 0 {
             error!("RawMioSocket::drop(): {:?}", io::Error::last_os_error());
         }
@@ -271,11 +286,9 @@ impl Evented for RawMioSocket {
 
 fn read_fd(fd: RawFd, buf: &mut [u8]) -> Result<usize, io::Error> {
     loop {
-        let n = unsafe {
-            libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
-        };
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if n < 0 {
-            if unsafe{ *libc::__errno_location() == libc::EINTR } {
+            if unsafe { *libc::__errno_location() == libc::EINTR } {
                 continue;
             }
             break Err(io::Error::last_os_error());

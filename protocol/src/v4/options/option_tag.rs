@@ -6,10 +6,6 @@ pub enum OptionTag {
     Unknown = -1,
     Pad = 0,
 
-    /*
-    RFC 2132
-    */
-    // RFC 1497 Vendor Extensions (RFC 2132 §3)
     SubnetMask,
     TimeOffset,
     Routers,
@@ -84,10 +80,6 @@ pub enum OptionTag {
     NetwareIpDomain,
     NetwareIpOption,
 
-    /*
-    RFC 2132 (continuation)
-    */
-    // Application and Service Parameters (RFC 2132 §8) (continuation)
     NisDomainName,
     NisServerAddress,
     ServerName,
