@@ -40,7 +40,8 @@ macro_rules! poll_complete (
             Ok(Async::NotReady) => return Ok(Async::NotReady),
             Err(error) => {
                 warn!("Socket error: {}", error);
-                continue;
+                // continue;
+                return Err(error);
             },
         }
     );
