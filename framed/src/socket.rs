@@ -123,7 +123,7 @@ where
                 if sent != amount {
                     return Err(io::Error::new(
                         io::ErrorKind::WriteZero,
-                        "Failed to write entire datagram to socket",
+                        format!("Failed to write entire datagram to socket. Amount: {}, sent: {}", amount, sent),
                     ));
                 }
             }

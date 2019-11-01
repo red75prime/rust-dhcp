@@ -103,6 +103,7 @@ impl RawUdpSocketV4 {
         let builder = PacketBuilder::ipv4([0, 0, 0, 0], target.ip().octets(), DHCP_DEF_TTL)
             .udp(self.port, target.port());
         let packet_len = builder.size(buf.len());
+        let header_len = packet_len - buf.len();
         let mut write_buf = &mut self.write_buf[..];
         if let Err(_) = builder.write(&mut write_buf, buf) {
             self.io.clear_write_ready()?;
@@ -140,7 +141,14 @@ impl RawUdpSocketV4 {
                 return Err(err);
             }
         };
-        Ok(Async::Ready(result as usize))
+        let result = result as usize;
+        let payload_sent_len =
+            if result >= header_len {
+                result - header_len
+            } else {
+                0
+            };
+        Ok(Async::Ready(payload_sent_len))
     }
 }
 
