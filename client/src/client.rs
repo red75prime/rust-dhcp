@@ -208,10 +208,15 @@ where
         client reverts to using the IP broadcast address.
         */
 
-        if let Some(dhcp_server_id) = self.state.dhcp_server_id() {
-            dhcp_server_id
-        } else {
+        // Raw socket may not support unicasting
+        if self.io.mode() == SocketMode::Raw {
             Ipv4Addr::new(255, 255, 255, 255)
+        } else {
+            if let Some(dhcp_server_id) = self.state.dhcp_server_id() {
+                dhcp_server_id
+            } else {
+                Ipv4Addr::new(255, 255, 255, 255)
+            }
         }
     }
 
@@ -415,7 +420,7 @@ where
                     message.  The client MUST insert its known network address as a
                     'requested IP address' option in the DhcpRequest message.
                     */
-                    self.io.switch_to(SocketMode::Raw);
+                    self.io.switch_to(SocketMode::Raw)?;
                     self.state.transcend(current, DhcpState::Rebooting, None);
                 }
                 current @ DhcpState::Rebooting => {
