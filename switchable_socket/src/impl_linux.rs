@@ -15,6 +15,8 @@ const IPV4_HEADER_SIZE_MIN: usize = 20;
 const UDP_HEADER_SIZE: usize = 8;
 // Value from IPDEFTTL in linux/ip.h
 const DHCP_DEF_TTL: u8 = 64;
+// TODO: libc for uclibc lacks `ETH_P_IP` and other constants
+const ETH_P_IP: libc::c_int = 0x0800;
 
 pub struct RawUdpSocketV4 {
     io: PollEvented2<RawMioSocket>,
@@ -114,7 +116,7 @@ impl RawUdpSocketV4 {
         let ifindex = self.io.get_ref().ifindex;
         let sockaddr = libc::sockaddr_ll {
             sll_family: libc::AF_PACKET as u16,
-            sll_protocol: (libc::ETH_P_IP as u16).to_be(),
+            sll_protocol: (self::ETH_P_IP as u16).to_be(),
             sll_ifindex: ifindex,
             sll_hatype: 0,
             sll_pkttype: 0,
@@ -229,11 +231,11 @@ impl RawMioSocket {
 
         let ifindex = ifindex(iface)?;
         unsafe {
-            let fd = socket(PF_PACKET, SOCK_DGRAM, ETH_P_IP.to_be());
+            let fd = socket(PF_PACKET, SOCK_DGRAM, self::ETH_P_IP.to_be());
             // PF_PACKET sockets cannot be bound to device by using setsockopt
             let mut sockaddr = sockaddr_ll {
                 sll_family: AF_PACKET as u16,
-                sll_protocol: (ETH_P_IP as u16).to_be(),
+                sll_protocol: (self::ETH_P_IP as u16).to_be(),
                 sll_ifindex: ifindex,
                 sll_hatype: 0,
                 sll_pkttype: 0,
