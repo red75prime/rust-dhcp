@@ -110,6 +110,8 @@ fn main() {
 
     let dhcp_framed = DhcpFramed::new(switchable_socket).expect("Cannot create DhcpFramed");
 
+    let request_static_routes = false;
+
     let client = SuperClient::new(Client::new(
         dhcp_framed,
         MacAddress::new([0x00, 0x0c, 0x29, 0x13, 0x0e, 0x37]),
@@ -120,6 +122,7 @@ fn main() {
         address_request,
         address_time,
         max_message_size,
+        request_static_routes,
     ));
 
     let future = client.map_err(|error| error!("Error: {}", error));

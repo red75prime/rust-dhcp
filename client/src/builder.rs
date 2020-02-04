@@ -16,6 +16,9 @@ pub struct MessageBuilder {
     hostname: Option<String>,
     /// The optional maximum DHCP message size the client will accept.
     max_message_size: Option<u16>,
+    /// true - client requests static routes and static classless routes in addition to routers
+    /// false - request only routers
+    request_static_routes: bool,
 }
 
 impl MessageBuilder {
@@ -25,12 +28,14 @@ impl MessageBuilder {
         client_id: Vec<u8>,
         hostname: Option<String>,
         max_message_size: Option<u16>,
+        request_static_routes: bool,
     ) -> Self {
         MessageBuilder {
             client_hardware_address,
             client_id,
             hostname,
             max_message_size,
+            request_static_routes,
         }
     }
 
@@ -47,7 +52,7 @@ impl MessageBuilder {
 
         options.dhcp_message_type = Some(MessageType::DhcpDiscover);
         options.dhcp_max_message_size = self.max_message_size;
-        options.parameter_list = Some(Self::parameter_list());
+        options.parameter_list = Some(self.parameter_list());
         options.address_request = address_request;
         options.address_time = address_time;
 
@@ -89,7 +94,7 @@ impl MessageBuilder {
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
         options.dhcp_max_message_size = self.max_message_size;
         options.dhcp_server_id = Some(dhcp_server_id);
-        options.parameter_list = Some(Self::parameter_list());
+        options.parameter_list = Some(self.parameter_list());
         options.address_request = Some(address_request);
         options.address_time = address_time;
 
@@ -129,7 +134,7 @@ impl MessageBuilder {
 
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
         options.dhcp_max_message_size = self.max_message_size;
-        options.parameter_list = Some(Self::parameter_list());
+        options.parameter_list = Some(self.parameter_list());
         options.address_request = Some(address_request);
         options.address_time = address_time;
 
@@ -169,7 +174,7 @@ impl MessageBuilder {
 
         options.dhcp_message_type = Some(MessageType::DhcpRequest);
         options.dhcp_max_message_size = self.max_message_size;
-        options.parameter_list = Some(Self::parameter_list());
+        options.parameter_list = Some(self.parameter_list());
         options.address_time = address_time;
 
         Message {
@@ -207,7 +212,7 @@ impl MessageBuilder {
 
         options.dhcp_message_type = Some(MessageType::DhcpInform);
         options.dhcp_max_message_size = self.max_message_size;
-        options.parameter_list = Some(Self::parameter_list());
+        options.parameter_list = Some(self.parameter_list());
 
         Message {
             operation_code: OperationCode::BootRequest,
@@ -314,22 +319,30 @@ impl MessageBuilder {
         options.client_id = Some(self.client_id.to_owned());
     }
 
-    fn parameter_list() -> Vec<u8> {
-        vec![
-            OptionTag::SubnetMask as u8,
-            OptionTag::DomainNameServers as u8,
-            /*
-            RFC 3442
-            DHCP clients that support this option and send a parameter request
-            list MAY also request the Static Routes option, for compatibility
-            with older servers that don't support Classless Static Routes. The
-            Classless Static Routes option code MUST appear in the parameter
-            request list prior to both the Router option code and the Static
-            Routes option code, if present.
-            */
-            OptionTag::ClasslessStaticRoutes as u8,
-            OptionTag::Routers as u8,
-            OptionTag::StaticRoutes as u8,
-        ]
+    fn parameter_list(&self) -> Vec<u8> {
+        if self.request_static_routes {
+            vec![
+                OptionTag::SubnetMask as u8,
+                OptionTag::DomainNameServers as u8,
+                /*
+                RFC 3442
+                DHCP clients that support this option and send a parameter request
+                list MAY also request the Static Routes option, for compatibility
+                with older servers that don't support Classless Static Routes. The
+                Classless Static Routes option code MUST appear in the parameter
+                request list prior to both the Router option code and the Static
+                Routes option code, if present.
+                */
+                OptionTag::ClasslessStaticRoutes as u8,
+                OptionTag::Routers as u8,
+                OptionTag::StaticRoutes as u8,
+            ]
+        } else {
+            vec![
+                OptionTag::SubnetMask as u8,
+                OptionTag::DomainNameServers as u8,
+                OptionTag::Routers as u8,
+            ]
+        }
     }
 }

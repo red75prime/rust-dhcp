@@ -140,6 +140,9 @@ where
     /// * `max_message_size`
     /// The maximum DHCP message size.
     ///
+    /// * `request_static_routes`
+    /// Client requests static routes and static classless routes.
+    /// Maximum DHCP message size should be increased to accomodate them.
     pub fn new(
         io: IO,
         client_hardware_address: MacAddress,
@@ -150,6 +153,7 @@ where
         address_request: Option<Ipv4Addr>,
         address_time: Option<u32>,
         max_message_size: Option<u16>,
+        request_static_routes: bool,
     ) -> Self {
         let hostname: Option<String> = if hostname.is_none() {
             hostname::get_hostname()
@@ -164,6 +168,7 @@ where
             client_id,
             hostname,
             max_message_size,
+            request_static_routes,
         );
 
         let mut options = RequestOptions {
