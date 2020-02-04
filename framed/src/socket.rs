@@ -59,6 +59,9 @@ where
     fn mode(&self) -> SocketMode {
         self.socket.mode()
     }
+    fn device_name(&self) -> &str {
+        self.socket.device_name()
+    }
 }
 
 impl<S> Stream for DhcpFramed<S>

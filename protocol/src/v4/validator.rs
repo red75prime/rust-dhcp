@@ -3,11 +3,22 @@
 use super::{constants::SIZE_MESSAGE_MINIMAL, options::MessageType, Message};
 
 /// The error type returned by `Message::validate`.
-#[derive(Fail, Debug)]
+#[derive(Debug)]
 pub enum Error {
-    #[fail(display = "Validation error: {}", _0)]
     Validation(&'static str),
 }
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::Validation(msg) => {
+                write!(fmt, "Validation error: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error { }
 
 /// Checks if required options are present for each message type.
 macro_rules! must_set_option (

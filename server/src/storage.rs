@@ -80,7 +80,7 @@ where
     fn update_lease(
         &mut self,
         client_id: &[u8],
-        action: &mut FnMut(&mut Lease) -> (),
+        action: &mut dyn FnMut(&mut Lease) -> (),
     ) -> Result<(), Error>;
 
     /// Must return `true` if the given address has been frozen, `false` otherwise.

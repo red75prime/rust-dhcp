@@ -2,8 +2,6 @@
 
 extern crate bytes;
 extern crate eui48;
-#[macro_use]
-extern crate failure;
 
 mod v4;
 

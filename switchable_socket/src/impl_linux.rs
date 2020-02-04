@@ -1,5 +1,5 @@
 use crate::socket::UdpAsyncReadWrite;
-use futures::{future, Async, Poll};
+use futures::{Async, Poll};
 use mio::{event::Evented, unix::EventedFd};
 use std::{
     net::{SocketAddr, SocketAddrV4},

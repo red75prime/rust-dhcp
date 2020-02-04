@@ -92,7 +92,11 @@ pub struct Options {
 
     pub nis_v3_domain_name: Option<String>,
     pub nis_v3_servers: Option<Vec<Ipv4Addr>>,
+    // https://tools.ietf.org/html/rfc2132#section-9.4
+    // FIXME: It's not a separate option, but a spill-out option for 'sname' field
     pub server_name: Option<String>,
+    // https://tools.ietf.org/html/rfc2132#section-9.5
+    // FIXME: It's not a separate option, but a spill-out option for 'file' field
     pub bootfile_name: Option<String>,
     pub home_agent_addresses: Option<Vec<Ipv4Addr>>,
     pub smtp_servers: Option<Vec<Ipv4Addr>>,

@@ -90,15 +90,13 @@ impl Message {
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.server_ip_address));
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.gateway_ip_address));
         cursors[CURSOR_INDEX_MAIN].put(self.client_hardware_address.as_bytes()); // 6 byte MAC-48
-        cursors[CURSOR_INDEX_MAIN].put(vec![
-            0u8;
-            SIZE_HARDWARE_ADDRESS
-                - self.client_hardware_address.as_bytes().len()
-        ]); // 10 byte padding
+        cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_HARDWARE_ADDRESS][self.client_hardware_address.as_bytes().len()..]); // 10 byte padding
+        // FIXME: server_name length is not validated
         cursors[CURSOR_INDEX_MAIN].put(&self.server_name);
-        cursors[CURSOR_INDEX_MAIN].put(vec![0u8; SIZE_SERVER_NAME - self.server_name.len()]); // (64 - length) byte padding
+        cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_SERVER_NAME][self.server_name.len()..]); // (64 - length) byte padding
+        // FIXME: boot_filename length is not validated
         cursors[CURSOR_INDEX_MAIN].put(&self.boot_filename);
-        cursors[CURSOR_INDEX_MAIN].put(vec![0u8; SIZE_BOOT_FILENAME - self.boot_filename.len()]); // (128 - length) byte padding
+        cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_BOOT_FILENAME][self.boot_filename.len()..]); // (128 - length) byte padding
         cursors[CURSOR_INDEX_MAIN].put_u32_be(MAGIC_COOKIE);
 
         // the most important and required options are encoded first
@@ -728,7 +726,7 @@ impl Message {
 
             let (mut i, mut j, mut c) = (0, 0, 0); // iterators
             while c < cursors.len() {
-                let mut cursor = &mut cursors[c];
+                let cursor = &mut cursors[c];
                 let affix_len = if c != CURSOR_INDEX_MAIN {
                     SIZE_OPTION_AFFIXES // only the tag, the length and the END
                 } else {

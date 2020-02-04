@@ -48,6 +48,8 @@ pub trait ModeSwitch {
     fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error>;
     /// Returns current socket mode
     fn mode(&self) -> SocketMode;
+    /// Device (interface) name this socket is bound to
+    fn device_name(&self) -> &str;
 }
 
 /// Either UDP or RAW socket
@@ -158,6 +160,10 @@ where
 
     fn mode(&self) -> SocketMode {
         self.socket.mode()
+    }
+
+    fn device_name(&self) -> &str {
+        &self.iface
     }
 }
 
