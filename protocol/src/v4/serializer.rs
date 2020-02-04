@@ -91,10 +91,14 @@ impl Message {
         cursors[CURSOR_INDEX_MAIN].put_u32_be(u32::from(self.gateway_ip_address));
         cursors[CURSOR_INDEX_MAIN].put(self.client_hardware_address.as_bytes()); // 6 byte MAC-48
         cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_HARDWARE_ADDRESS][self.client_hardware_address.as_bytes().len()..]); // 10 byte padding
-        // FIXME: server_name length is not validated
+        if self.server_name.len() > SIZE_SERVER_NAME {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "server_name too long"));
+        }
         cursors[CURSOR_INDEX_MAIN].put(&self.server_name);
         cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_SERVER_NAME][self.server_name.len()..]); // (64 - length) byte padding
-        // FIXME: boot_filename length is not validated
+        if self.boot_filename.len() > SIZE_BOOT_FILENAME {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "boot_filename too long"));
+        }
         cursors[CURSOR_INDEX_MAIN].put(&self.boot_filename);
         cursors[CURSOR_INDEX_MAIN].put_slice(&[0u8; SIZE_BOOT_FILENAME][self.boot_filename.len()..]); // (128 - length) byte padding
         cursors[CURSOR_INDEX_MAIN].put_u32_be(MAGIC_COOKIE);
@@ -177,6 +181,8 @@ impl Message {
         } else {
             None
         };
+        // FIXME: if overload is not None, then we should spill
+        // self.server_name and/or self.boot_filename into server_name and bootfile_name options
         Self::put_opt_u8(
             &mut cursors[CURSOR_INDEX_MAIN],
             Overload,

@@ -161,7 +161,15 @@ where
             hostname::get_hostname()
         };
 
-        let client_id = client_id.unwrap_or(client_hardware_address.as_bytes().to_vec());
+        let client_id = if let Some(client_id) = client_id {
+            client_id
+        } else {
+            // https://tools.ietf.org/html/rfc2132#section-9.14
+            let mut client_id = Vec::with_capacity(client_hardware_address.as_bytes().len()+1);
+            client_id.push(dhcp_protocol::HardwareType::Ethernet as u8);
+            client_id.extend_from_slice(client_hardware_address.as_bytes());
+            client_id
+        };
 
         let builder = MessageBuilder::new(
             client_hardware_address,
