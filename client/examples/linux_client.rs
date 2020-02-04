@@ -20,25 +20,22 @@ extern crate net2;
 
 use std::{
     io,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr},
 };
 
 use eui48::MacAddress;
 use tokio::prelude::*;
-use tokio::reactor::Handle;
 
 use dhcp_client::{Client, Command};
 use dhcp_framed::{
     DhcpFramed, DhcpSinkItem, DhcpStreamItem, BUFFER_READ_CAPACITY, BUFFER_WRITE_CAPACITY,
 };
 use dhcp_protocol::{DHCP_PORT_CLIENT, SIZE_MESSAGE_MINIMAL};
-use net2::UdpBuilder;
 #[cfg(not(target_os = "linux"))]
 use switchable_socket::dummy;
 #[cfg(target_os = "linux")]
 use switchable_socket::linux;
 use switchable_socket::ModeSwitch;
-use tokio::net::UdpSocket;
 
 struct SuperClient<IO> {
     inner: Client<IO>,
