@@ -155,10 +155,10 @@ where
         max_message_size: Option<u16>,
         request_static_routes: bool,
     ) -> Self {
-        let hostname: Option<String> = if hostname.is_none() {
-            hostname::get_hostname()
+        let hostname: Option<String> = if let Some(hostname) = hostname {
+            Some(hostname)
         } else {
-            None
+            hostname::get_hostname()
         };
 
         let client_id = client_id.unwrap_or(client_hardware_address.as_bytes().to_vec());
