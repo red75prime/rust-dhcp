@@ -180,7 +180,7 @@ impl fmt::Display for Message {
         dbg_opt!(f, self.options.dhcp_max_message_size, iter);
         dbg_opt!(f, self.options.renewal_time, iter);
         dbg_opt!(f, self.options.rebinding_time, iter);
-        dbg_opt!(f, self.options.class_id, iter);
+        dbg_opt!(f, self.options.vendor_class_id, iter);
         dbg_opt!(f, self.options.client_id, iter);
         dbg_opt!(f, self.options.netware_ip_domain, iter);
         dbg_opt!(f, self.options.netware_ip_option, iter);

@@ -338,8 +338,8 @@ impl Message {
                         &mut options.dhcp_message,
                     )?)
                 }
-                ClassId => {
-                    options.class_id = Some(Self::get_opt_vec(&mut cursor, &mut options.class_id)?)
+                VendorClassId => {
+                    options.vendor_class_id = Some(Self::get_opt_vec(&mut cursor, &mut options.vendor_class_id)?)
                 }
                 ClientId => {
                     options.client_id =

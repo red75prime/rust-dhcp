@@ -81,7 +81,7 @@ pub struct Options {
     pub dhcp_max_message_size: Option<u16>,
     pub renewal_time: Option<u32>,
     pub rebinding_time: Option<u32>,
-    pub class_id: Option<Vec<u8>>,
+    pub vendor_class_id: Option<Vec<u8>>,
     pub client_id: Option<Vec<u8>>,
 
     /*

@@ -71,7 +71,7 @@ pub enum OptionTag {
     DhcpMaxMessageSize,
     RenewalTime,
     RebindingTime,
-    ClassId,
+    VendorClassId,
     ClientId,
 
     /*
@@ -166,7 +166,7 @@ impl From<u8> for OptionTag {
             57 => DhcpMaxMessageSize,
             58 => RenewalTime,
             59 => RebindingTime,
-            60 => ClassId,
+            60 => VendorClassId,
             61 => ClientId,
             62 => NetwareIpDomain,
             63 => NetwareIpOption,

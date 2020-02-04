@@ -428,8 +428,8 @@ impl Message {
         )?;
         Self::put_opt_vec(
             &mut cursors[CURSOR_INDEX_MAIN],
-            ClassId,
-            &self.options.class_id,
+            VendorClassId,
+            &self.options.vendor_class_id,
         )?;
         Self::put_opt_vec(
             &mut cursors[CURSOR_INDEX_MAIN],
