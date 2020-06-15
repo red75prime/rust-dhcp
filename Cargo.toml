@@ -6,4 +6,5 @@ members = [
     "framed",
     "switchable_socket",
     "arp",
+    "integration_tests"
 ]

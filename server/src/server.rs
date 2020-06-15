@@ -7,7 +7,7 @@ use tokio::{io, prelude::*};
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use dhcp_arp;
-use dhcp_framed::DhcpFramed;
+use dhcp_framed::{DhcpFramed, DhcpStreamItem, DhcpSinkItem};
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_CLIENT, DHCP_PORT_SERVER};
 
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
@@ -126,15 +126,41 @@ where
             self.bpf_num_threads_size,
         )
     }
+
+    /// Consumes the builder and returns the built server.
+    pub fn finish_with_channel<C>(self, channel: C) -> io::Result<GenericServer<S,C>>
+    where
+        C: Stream<Item = DhcpStreamItem, Error = io::Error> +
+            Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+    {
+        GenericServer::with_channel(
+            channel,
+            self.server_ip_address,
+            self.iface_name,
+            self.static_address_range,
+            self.dynamic_address_range,
+            self.storage,
+            self.subnet_mask,
+            self.routers,
+            self.domain_name_servers,
+            self.static_routes,
+            self.classless_static_routes,
+            self.bpf_num_threads_size,
+        )
+    }
+
 }
 
+pub type Server<S> = GenericServer<S, DhcpFramed<UdpSocket>>;
 /// The struct implementing the `Future` trait.
-pub struct Server<S>
+pub struct GenericServer<S, C>
 where
     S: Storage,
+    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
+        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
 {
     /// The server UDP socket.
-    socket: DhcpFramed<UdpSocket>,
+    socket: C,
     /// The IP address the server is hosted on.
     server_ip_address: Ipv4Addr,
     /// The interface the server works on.
@@ -194,6 +220,57 @@ where
 
         Ok(Server {
             socket,
+            server_ip_address,
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            iface_name: iface_name.to_owned(),
+            builder,
+            database,
+            #[cfg(target_os = "windows")]
+            arp: None,
+            #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+            bpf_data: BpfData::new(&iface_name, bpf_num_threads_size)?,
+        })
+    }
+}
+
+impl<S, C> GenericServer<S, C>
+where
+    S: Storage,
+    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
+        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+{
+    /// Creates a server future.
+    #[allow(unused_variables)]
+    pub fn with_channel(
+        channel: C,
+        server_ip_address: Ipv4Addr,
+        iface_name: String,
+        static_address_range: (Ipv4Addr, Ipv4Addr),
+        dynamic_address_range: (Ipv4Addr, Ipv4Addr),
+        storage: S,
+        subnet_mask: Ipv4Addr,
+        routers: Vec<Ipv4Addr>,
+        domain_name_servers: Vec<Ipv4Addr>,
+        static_routes: Vec<(Ipv4Addr, Ipv4Addr)>,
+        classless_static_routes: Vec<(Ipv4Addr, Ipv4Addr, Ipv4Addr)>,
+        bpf_num_threads_size: Option<usize>,
+    ) -> io::Result<Self> {
+        let hostname = hostname::get_hostname();
+
+        let builder = MessageBuilder::new(
+            server_ip_address,
+            hostname,
+            subnet_mask,
+            routers,
+            domain_name_servers,
+            static_routes,
+            classless_static_routes,
+        );
+
+        let database = Database::new(static_address_range, dynamic_address_range, storage);
+
+        Ok(GenericServer {
+            socket: channel,
             server_ip_address,
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             iface_name: iface_name.to_owned(),
@@ -282,9 +359,11 @@ where
     }
 }
 
-impl<S> Future for Server<S>
+impl<S, C> Future for GenericServer<S, C>
 where
     S: Storage,
+    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
+        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
 {
     type Item = ();
     type Error = io::Error;

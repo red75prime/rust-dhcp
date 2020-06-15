@@ -3,7 +3,7 @@
 use std::fmt;
 
 /// DHCP message type (RFC 2131 only).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     Undefined = 0,
     DhcpDiscover,

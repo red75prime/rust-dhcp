@@ -1,0 +1,24 @@
+[package]
+name = "integration_tests"
+version = "0.1.0"
+authors = ["red75prime"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+tokio = "0.1"
+futures = "0.1"
+bytes = "0.4"
+eui48 = "0.4"
+chrono = "0.4"
+hostname = "0.1"
+rand = "0.6"
+dhcp-protocol = { path = "../protocol" }
+dhcp-framed = { path = "../framed" }
+dhcp-client = { path = "../client" }
+dhcp-server = { path = "../server" }
+switchable-socket = { path = "../switchable_socket"}
+net2 = "0.2.33"
+env_logger = "0.6"

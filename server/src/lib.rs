@@ -42,7 +42,7 @@ extern crate dhcp_framed;
 extern crate dhcp_protocol;
 
 pub use self::{
-    server::{Server, ServerBuilder},
+    server::{GenericServer, Server, ServerBuilder},
     storage::Storage,
     storage_ram::RamStorage,
 };
