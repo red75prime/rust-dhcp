@@ -161,6 +161,6 @@ macro_rules! poll_forthon (
 /// Panic if there is a bug in the state changing logic.
 macro_rules! panic_state(
     ($from:expr, $to:expr) => (
-        panic!("Invalid state transcension from {} to {}");
+        panic!("Invalid state transcension from {} to {}", $from, $to);
     );
 );
