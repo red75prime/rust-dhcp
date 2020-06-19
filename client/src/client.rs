@@ -465,7 +465,7 @@ where
                         Ok(Async::NotReady) => {
                             let next = poll_backoff!(
                                 self.state.timer_ack,
-                                DhcpState::InitReboot,
+                                DhcpState::Rebooting,
                                 DhcpState::Init
                             );
                             self.state.transcend(current, next, None);
