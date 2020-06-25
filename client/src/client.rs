@@ -510,8 +510,8 @@ where
                     client MUST NOT include a 'server identifier' in the DHCPREQUEST
                     message.
                     */
-                    self.io.switch_to(SocketMode::Udp)?;
                     poll_delay!(self.state.timer_renewal);
+                    self.io.switch_to(SocketMode::Udp)?;
                     self.state.transcend(current, DhcpState::Renewing, None);
                 }
                 current @ DhcpState::Renewing => {
