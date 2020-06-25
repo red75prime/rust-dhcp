@@ -585,6 +585,11 @@ where
                         self.options.address_time,
                     );
 
+                    // RFC 2131 §4.4.5 If no DHCPACK arrives before time T2, the client moves to REBINDING
+                    // state and sends (via broadcast) a DHCPREQUEST message to extend its
+                    // lease.
+                    self.io.switch_to(SocketMode::Raw)?;
+
                     self.send_request(request)?;
                     self.state
                         .transcend(current, DhcpState::RebindingSent, None);
