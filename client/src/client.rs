@@ -257,7 +257,7 @@ where
 
     /// Yields a `Configuration` after each configuration update.
     ///
-    ///               The DHCP client lifecycle (RFC 2131)
+    /// The DHCP client lifecycle (RFC 2131)
     ///  --------                               -------
     /// |        | +-------------------------->|       |<-------------------+
     /// | INIT-  | |     +-------------------->| INIT  |                    |
