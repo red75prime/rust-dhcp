@@ -6,7 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chrono::prelude::*;
 use rand;
 use tokio::timer::Delay;
 
@@ -86,7 +85,7 @@ pub struct State {
     assigned_address: Ipv4Addr,
 
     /// Recorded by the client right before sending the `DhcpRequest`.
-    requested_at: i64,
+    requested_at: Instant,
     /// Seconds from `BOUND` till `RENEWING` state.
     renewal_after: u64,
     /// Seconds from `RENEWING` till `REBINDING` state.
@@ -122,7 +121,7 @@ impl State {
             dhcp_server_id: server_address,
             assigned_address: Ipv4Addr::new(0, 0, 0, 0),
 
-            requested_at: 0i64,
+            requested_at: Instant::now(),
             renewal_after: 0u64,
             rebinding_after: 0u64,
             expiration_after: 0u64,
@@ -338,7 +337,7 @@ impl State {
     }
 
     fn record_request_time(&mut self) {
-        self.requested_at = Utc::now().timestamp();
+        self.requested_at = Instant::now();
     }
 
     fn set_times(
@@ -352,11 +351,12 @@ impl State {
         let rebinding_time =
             rebinding_time.unwrap_or(((expiration_time as f64) * REBINDING_TIME_FACTOR) as u32);
 
-        self.renewal_after =
-            ((renewal_time as i64) - (Utc::now().timestamp() - self.requested_at)) as u64;
-        self.rebinding_after = (rebinding_time as u64) - self.renewal_after;
-        self.expiration_after =
-            (expiration_time as u64) - self.renewal_after - self.rebinding_after;
+        let seconds_since_request = self.requested_at.elapsed().as_secs();
+        self.renewal_after = u64::from(renewal_time).saturating_sub(seconds_since_request);
+        self.rebinding_after = u64::from(rebinding_time).saturating_sub(self.renewal_after);
+        self.expiration_after = u64::from(expiration_time)
+            .saturating_sub(self.renewal_after)
+            .saturating_sub(self.rebinding_after);
     }
 
     fn run_timer_offer(&mut self) {
