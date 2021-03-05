@@ -69,7 +69,7 @@ impl RawUdpSocketV4 {
             self.io.clear_read_ready(mio::Ready::readable())?;
             return Ok(Async::NotReady);
         }
-        match &SlicedPacket::from_ip(&self.read_buf[..n]) {
+        match &mut SlicedPacket::from_ip(&self.read_buf[..n]) {
             Ok(SlicedPacket {
                 ip: Some(InternetSlice::Ipv4(ipv4)),
                 transport: Some(TransportSlice::Udp(udp)),
@@ -82,14 +82,16 @@ impl RawUdpSocketV4 {
                     let src_addr = SocketAddrV4::new(ipv4.source_addr(), udp.source_port());
                     return Ok(Async::Ready((payload_len, src_addr)));
                 } else {
-                    // ignore
-                    if log_enabled!(log::Level::Trace) {
-                        trace!("Ignoring (wrong port {}) {:02x?} {:02x?}", udp.destination_port(), ipv4, udp);
-                    }
+                    // ignore and don't log, too many packets
+                    // if log_enabled!(log::Level::Trace) {
+                    //     trace!("Ignoring (wrong port {}) {:02x?} {:02x?}", udp.destination_port(), ipv4, udp);
+                    // }
                 }
             }
             Ok(packet) => {
                 if log_enabled!(log::Level::Trace) {
+                    // don't log payload
+                    packet.payload = &[];
                     trace!("Ignoring {:02x?}", packet);
                 }
             }
