@@ -83,10 +83,11 @@ impl RawUdpSocketV4 {
                     return Ok(Async::Ready((payload_len, src_addr)));
                 } else {
                     // ignore
+                    trace!("Ignoring (wrong port {}) {:02x?}", udp.destination_port(), packet);
                 }
             }
             Ok(packet) => {
-                trace!("Ignoring {:?}", packet);
+                trace!("Ignoring {:02x?}", packet);
             }
             _ => {
                 // Ignore
