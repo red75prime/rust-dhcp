@@ -3,9 +3,10 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use eui48::MacAddress;
-use futures::StartSend;
+use futures::{Sink, Stream};
 use hostname;
-use tokio::{io, prelude::*};
+use pin_project::pin_project;
+use tokio::io;
 
 use dhcp_protocol::{Message, MessageType, DHCP_PORT_SERVER};
 use switchable_socket::{ModeSwitch, SocketMode};
@@ -79,7 +80,9 @@ type DhcpStreamItem = (SocketAddr, Message);
 type DhcpSinkItem = (SocketAddr, (Message, Option<u16>));
 
 /// The struct implementing the `Future` trait.
+#[pin_project]
 pub struct Client<S> {
+    #[pin]
     io: S,
     builder: MessageBuilder,
     state: State,
@@ -88,8 +91,8 @@ pub struct Client<S> {
 
 impl<IO> Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
-        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+    IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+        + Sink<DhcpSinkItem, Error = io::Error>
         + ModeSwitch
         + Send
         + Sync,

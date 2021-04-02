@@ -20,9 +20,11 @@
 
 use std::time::{Duration, Instant};
 
-use futures::{Async, Future, Poll, Stream};
+use std::task::{Context, Poll};
+use futures::{ready, Stream};
+use pin_project::pin_project;
 use rand::{self, Rng};
-use tokio::timer::{Delay, Error};
+use tokio::time::Sleep;
 
 /// This `value`, this `-value` or `0` is added to each timeout in seconds.
 const AMPLITUDE: i32 = 1;
@@ -30,6 +32,7 @@ const AMPLITUDE: i32 = 1;
 /// Binary exponential backoff algorithm implemented as a `Stream`.
 ///
 /// Yields after each timeout.
+#[pin_project]
 pub struct Backoff {
     /// The current timeout without randomization.
     current: Duration,
@@ -37,8 +40,9 @@ pub struct Backoff {
     with_rand: Duration,
     /// The timeout after which the timer is expired.
     maximal: Duration,
-    /// The timer himself.
-    timeout: Delay,
+    /// The timer itself.
+    #[pin]
+    timeout: Sleep,
 }
 
 impl Backoff {
@@ -56,7 +60,7 @@ impl Backoff {
             current: minimal,
             with_rand,
             maximal,
-            timeout: Delay::new(Instant::now() + with_rand),
+            timeout: Sleep::new(with_rand),
         }
     }
 
@@ -76,15 +80,15 @@ impl Backoff {
 
 impl Stream for Backoff {
     type Item = (u64, bool);
-    type Error = Error;
 
     /// Yields seconds slept and the expiration flag.
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        try_ready!(self.timeout.poll());
-        let seconds = self.with_rand.as_secs();
-        self.current *= 2;
-        self.with_rand = Self::randomize(&self.current);
-        self.timeout = Delay::new(Instant::now() + self.with_rand);
-        Ok(Async::Ready(Some((seconds, self.current > self.maximal))))
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        ready!(this.timeout.poll());
+        let seconds = this.with_rand.as_secs();
+        *this.current *= 2;
+        *this.with_rand = Self::randomize(&self.current);
+        *this.timeout = Sleep::new(self.with_rand);
+        Poll::Ready(Some((seconds, self.current > self.maximal)))
     }
 }

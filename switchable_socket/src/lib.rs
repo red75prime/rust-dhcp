@@ -10,7 +10,6 @@ mod impl_not_linux;
 pub mod linux;
 mod socket;
 
-#[macro_use]
 extern crate futures;
 #[macro_use]
 extern crate log;

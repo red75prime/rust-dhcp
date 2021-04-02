@@ -4,7 +4,6 @@
 mod socket;
 
 extern crate tokio;
-#[macro_use]
 extern crate futures;
 extern crate net2;
 

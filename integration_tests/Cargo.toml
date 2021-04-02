@@ -8,8 +8,8 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
-tokio = "0.1"
-futures = "0.1"
+tokio = "1.4"
+futures = "0.3.13"
 bytes = "0.4"
 eui48 = "0.4"
 chrono = "0.4"

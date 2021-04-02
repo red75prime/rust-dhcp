@@ -8,12 +8,15 @@
 
 use std::time::{Duration, Instant};
 
-use futures::{Async, Future, Poll, Stream};
-use tokio::timer::{Delay, Error};
+use std::task::{Context, Poll};
+use futures::{Future, Stream};
+use tokio::time::Sleep;
+use pin_project::pin_project;
 
 /// Binary exponential Forthon™ algorithm implemented as a `Stream`.
 ///
 /// Yields and eats a half of `left` after each timeout.
+#[pin_project]
 pub struct Forthon {
     /// Left until deadline.
     left: Duration,
@@ -22,7 +25,8 @@ pub struct Forthon {
     /// The timeout is defaulted to it if `left` is less than `minimal`.
     minimal: Duration,
     /// The timer himself.
-    timeout: Delay,
+    #[pin]
+    timeout: Sleep,
     /// The expiration flag.
     expired: bool,
 }
@@ -46,7 +50,7 @@ impl Forthon {
             left: deadline - sleep,
             sleep,
             minimal,
-            timeout: Delay::new(Instant::now() + sleep),
+            timeout: Sleep::new(sleep),
             expired,
         }
     }

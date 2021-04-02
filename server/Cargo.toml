@@ -5,8 +5,8 @@ authors = ["hedgar <hedgar2017@gmail.com>"]
 
 [dependencies]
 log = "0.4.3"
-tokio = "0.1.7"
-futures = "0.1.21"
+tokio = "1.4"
+futures = "0.3.13"
 bytes = "0.4.8"
 hostname = "0.1.5"
 chrono = "0.4.4"
@@ -26,7 +26,7 @@ arrayref = "0.3.4"
 dhcp-arp = { path = "../arp" }
 
 [target.'cfg(target_os="windows")'.dependencies]
-tokio-process = "0.2.2"
+tokio = { version = "1.4", features = ["process"] }
 
 [dev-dependencies]
 env_logger = "0.5.10"

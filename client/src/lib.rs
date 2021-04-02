@@ -16,6 +16,7 @@ extern crate futures;
 extern crate bytes;
 extern crate eui48;
 extern crate hostname;
+extern crate pin_project;
 extern crate rand;
 
 extern crate dhcp_framed;

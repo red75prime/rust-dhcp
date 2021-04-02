@@ -6,7 +6,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     os::unix::io::{AsRawFd, RawFd},
 };
-use tokio::{io, net::UdpSocket, reactor::Handle};
+use tokio::{io, net::UdpSocket};
 
 pub struct MakeRaw {
     pub max_packet_size: usize,
@@ -15,7 +15,7 @@ pub struct MakeRaw {
 impl MakeSocket for MakeRaw {
     type Socket = RawUdpSocketV4;
     fn make(&mut self, iface: &str, port: u16) -> Result<RawUdpSocketV4, io::Error> {
-        RawUdpSocketV4::new(iface, port, self.max_packet_size, &Handle::default())
+        RawUdpSocketV4::new(iface, port, self.max_packet_size)
     }
 }
 
@@ -29,7 +29,7 @@ impl MakeSocket for MakeUdp {
         let socket = socket.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))?;
         // Bind to interface
         bind_to_device_raw(socket.as_raw_fd(), iface)?;
-        let socket = UdpSocket::from_std(socket, &Handle::default())?;
+        let socket = UdpSocket::from_std(socket)?;
         socket.set_broadcast(true)?;
         Ok(socket)
     }

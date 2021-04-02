@@ -57,7 +57,7 @@ impl Message {
     /// # Errors
     /// `io::Error` if the buffer is too small.
     pub fn to_bytes(&self, dst: &mut [u8], max_size: Option<u16>) -> io::Result<usize> {
-        use OptionTag::*;
+        use crate::OptionTag::*;
 
         // the slice is truncated to the maximal client message size
         let dst = if let Some(max_size) = max_size {

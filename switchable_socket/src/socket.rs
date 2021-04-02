@@ -1,22 +1,35 @@
 //! The main DHCP socket module.
 
 use std::net::SocketAddr;
+use core::task::Context;
+use core::pin::Pin;
 
-use tokio::{io, net::UdpSocket, prelude::*};
+use futures::task::Poll;
+use futures::ready;
+use tokio::{io, net::UdpSocket};
 
 /// UDP I/O trait
 pub trait UdpAsyncReadWrite {
-    fn poll_recv_from(&mut self, buf: &mut [u8]) -> Poll<(usize, SocketAddr), io::Error>;
-    fn poll_send_to(&mut self, buf: &[u8], target: &SocketAddr) -> Poll<usize, io::Error>;
+    fn poll_recv_from(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<(usize, SocketAddr), io::Error>>;
+    fn poll_send_to(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8], target: &SocketAddr) -> Poll<Result<usize, io::Error>>;
 }
 
 impl UdpAsyncReadWrite for UdpSocket {
-    fn poll_recv_from(&mut self, buf: &mut [u8]) -> Poll<(usize, SocketAddr), io::Error> {
-        UdpSocket::poll_recv_from(self, buf)
+    fn poll_recv_from(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<(usize, SocketAddr), io::Error>> {
+        let this = Pin::into_inner(self);
+        let mut buf = tokio::io::ReadBuf::new(buf);
+        match ready!(this.poll_recv_from(cx, &mut buf)) {
+            Ok(sockaddr) => {
+                let len = buf.filled().len();
+                Poll::Ready(Ok((len, sockaddr)))
+            }
+            Err(e) => Poll::Ready(Err(e)),
+        }
     }
 
-    fn poll_send_to(&mut self, buf: &[u8], target: &SocketAddr) -> Poll<usize, io::Error> {
-        UdpSocket::poll_send_to(self, buf, target)
+    fn poll_send_to(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8], target: &SocketAddr) -> Poll<Result<usize, io::Error>> {
+        let this = Pin::into_inner(self);
+        this.poll_send_to(cx, buf, target.clone())
     }
 }
 
@@ -107,32 +120,36 @@ impl<R, U, MR, MU> SwitchableUdpSocket<R, U, MR, MU> {
 
 impl<R, U, MR, MU> UdpAsyncReadWrite for SwitchableUdpSocket<R, U, MR, MU>
 where
-    R: UdpAsyncReadWrite,
-    U: UdpAsyncReadWrite,
+    R: Unpin + UdpAsyncReadWrite,
+    U: Unpin + UdpAsyncReadWrite,
+    MR: Unpin,
+    MU: Unpin,
 {
     /// Receives data from the socket. On success, returns the number of bytes read and the address from whence the data came.
     /// #Panics
     /// This function will panic if called outside the context of a future's task.
-    fn poll_recv_from(&mut self, buf: &mut [u8]) -> Result<Async<(usize, SocketAddr)>, io::Error> {
-        match &mut self.socket {
-            Socket::Udp(socket) => socket.poll_recv_from(buf),
+    fn poll_recv_from(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<(usize, SocketAddr), io::Error>> {
+        let this = Pin::into_inner(self);
+        match &mut this.socket {
+            Socket::Udp(socket) => Pin::new(socket).poll_recv_from(cx, buf),
             Socket::Raw(socket) => {
                 // TODO: make raw socket transient.
                 // that is create it only for the duration of sending or receiving
                 // to reduce resource consumption (it captures all IP packets)
-                socket.poll_recv_from(buf)
+                Pin::new(socket).poll_recv_from(cx, buf)
             }
         }
     }
 
-    fn poll_send_to(&mut self, buf: &[u8], target: &SocketAddr) -> Result<Async<usize>, io::Error> {
-        match &mut self.socket {
-            Socket::Udp(socket) => socket.poll_send_to(buf, target),
+    fn poll_send_to(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8], target: &SocketAddr) -> Poll<Result<usize, io::Error>> {
+        let this = Pin::into_inner(self);
+        match &mut this.socket {
+            Socket::Udp(socket) => Pin::new(socket).poll_send_to(cx, buf, target),
             Socket::Raw(socket) => {
                 // TODO: make raw socket transient.
                 // that is create it only for the duration of sending or receiving
                 // to reduce resource consumption (it captures all IP packets)
-                socket.poll_send_to(buf, target)
+                Pin::new(socket).poll_send_to(cx, buf, target)
             }
         }
     }

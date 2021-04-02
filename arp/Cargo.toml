@@ -11,4 +11,4 @@ libc = "0.2.43"
 nix = "0.13.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-tokio-process = "0.2.2"
+tokio = { version = "1.4", features = ["process"] }

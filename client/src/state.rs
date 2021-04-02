@@ -7,7 +7,8 @@ use std::{
 };
 
 use rand;
-use tokio::timer::Delay;
+use pin_project::pin_project;
+use tokio::time::Sleep;
 
 use dhcp_protocol::Message;
 
@@ -68,6 +69,7 @@ impl fmt::Display for DhcpState {
 }
 
 /// Mutable `Client` data.
+#[pin_project]
 pub struct State {
     /// Current DHCP client state (RFC 2131).
     dhcp_state: DhcpState,
@@ -94,14 +96,19 @@ pub struct State {
     expiration_after: u64,
 
     /// DHCPOFFER receive deadline.
+    #[pin]
     pub timer_offer: Option<Backoff>,
     /// DHCPACK or DHCPNAK receive deadline.
+    #[pin]
     pub timer_ack: Option<Backoff>,
     /// Renewal timer (so called T1 in RFC 2131).
-    pub timer_renewal: Option<Delay>,
+    #[pin]
+    pub timer_renewal: Option<Sleep>,
     /// Rebinding timer (so called T2 in RFC 2131).
+    #[pin]
     pub timer_rebinding: Option<Forthon>,
     /// Lease expiration timer.
+    #[pin]
     pub timer_expiration: Option<Forthon>,
 }
 
