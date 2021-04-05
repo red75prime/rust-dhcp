@@ -56,17 +56,19 @@ impl<S> DhcpFramed<S> {
 
 impl<R, U, MR, MU> ModeSwitch for DhcpFramed<SwitchableUdpSocket<R, U, MR, MU>>
 where
-    MR: MakeSocket<Socket = R>,
-    MU: MakeSocket<Socket = U>,
+    R: Unpin,
+    U: Unpin,
+    MR: Unpin + MakeSocket<Socket = R>,
+    MU: Unpin + MakeSocket<Socket = U>,
 {
-    fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error> {
-        self.socket.switch_to(mode)
+    fn switch_to(self: Pin<&mut Self>, mode: SocketMode) -> Result<(), io::Error> {
+        self.project().socket.switch_to(mode)
     }
-    fn mode(&self) -> SocketMode {
-        self.socket.mode()
+    fn mode(self: Pin<&mut Self>) -> SocketMode {
+        self.project().socket.mode()
     }
-    fn device_name(&self) -> &str {
-        self.socket.device_name()
+    fn device_name(self: Pin<&mut Self>) -> &str {
+        self.project().socket.device_name()
     }
 }
 

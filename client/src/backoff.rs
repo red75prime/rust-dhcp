@@ -21,10 +21,10 @@
 use std::time::{Duration, Instant};
 
 use std::task::{Context, Poll};
-use futures::{ready, Stream};
+use futures::{ready, Future, Stream};
 use pin_project::pin_project;
 use rand::{self, Rng};
-use tokio::time::Sleep;
+use tokio::time::{sleep as tokio_sleep, Sleep};
 
 /// This `value`, this `-value` or `0` is added to each timeout in seconds.
 const AMPLITUDE: i32 = 1;
@@ -60,7 +60,7 @@ impl Backoff {
             current: minimal,
             with_rand,
             maximal,
-            timeout: Sleep::new(with_rand),
+            timeout: tokio_sleep(with_rand),
         }
     }
 
@@ -83,12 +83,12 @@ impl Stream for Backoff {
 
     /// Yields seconds slept and the expiration flag.
     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        ready!(this.timeout.poll());
+        let mut this = self.project();
+        ready!(this.timeout.as_mut().poll(cx));
         let seconds = this.with_rand.as_secs();
         *this.current *= 2;
-        *this.with_rand = Self::randomize(&self.current);
-        *this.timeout = Sleep::new(self.with_rand);
-        Poll::Ready(Some((seconds, self.current > self.maximal)))
+        *this.with_rand = Self::randomize(this.current);
+        this.timeout.set(tokio_sleep(*this.with_rand));
+        Poll::Ready(Some((seconds, this.current > this.maximal)))
     }
 }

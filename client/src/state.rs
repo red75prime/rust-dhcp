@@ -8,7 +8,8 @@ use std::{
 
 use rand;
 use pin_project::pin_project;
-use tokio::time::Sleep;
+use std::pin::Pin;
+use tokio::time::{sleep as tokio_sleep, Sleep};
 
 use dhcp_protocol::Message;
 
@@ -145,7 +146,7 @@ impl State {
     ///
     /// # Panics
     /// On an unexpected state transcension.
-    pub fn transcend(&mut self, from: DhcpState, to: DhcpState, response: Option<&Message>) {
+    pub fn transcend(mut self: Pin<&mut Self>, from: DhcpState, to: DhcpState, response: Option<&Message>) {
         use self::DhcpState::*;
         trace!("Transcending from {} to {}", from, to);
 
@@ -154,38 +155,38 @@ impl State {
                 next @ Selecting => {
                     self.set_dhcp_server_id(None);
                     self.run_timer_offer();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             Selecting => match to {
                 next @ SelectingSent => {
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             SelectingSent => match to {
-                next @ Selecting => self.dhcp_state = next,
+                next @ Selecting => *self.as_mut().project().dhcp_state = next,
                 next @ Requesting => {
                     let offer = expect!(response);
                     self.set_dhcp_server_id(Some(expect!(offer.options.dhcp_server_id)));
                     self.set_offered_address(offer.your_ip_address);
                     self.set_offered_time(expect!(offer.options.address_time));
                     self.run_timer_ack();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             Requesting => match to {
                 next @ RequestingSent => {
                     self.record_request_time();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             RequestingSent => match to {
-                next @ Init => self.dhcp_state = next,
-                next @ Requesting => self.dhcp_state = next,
+                next @ Init => *self.as_mut().project().dhcp_state = next,
+                next @ Requesting => *self.as_mut().project().dhcp_state = next,
                 next @ Bound => {
                     let ack = expect!(response);
                     self.set_assigned_address(ack.your_ip_address);
@@ -195,7 +196,7 @@ impl State {
                         expect!(ack.options.address_time),
                     );
                     self.run_timer_renewal();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
@@ -203,20 +204,20 @@ impl State {
             InitReboot => match to {
                 next @ Rebooting => {
                     self.run_timer_ack();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             Rebooting => match to {
                 next @ RebootingSent => {
                     self.record_request_time();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             RebootingSent => match to {
-                next @ Init => self.dhcp_state = next,
-                next @ Rebooting => self.dhcp_state = next,
+                next @ Init => *self.as_mut().project().dhcp_state = next,
+                next @ Rebooting => *self.as_mut().project().dhcp_state = next,
                 next @ Bound => {
                     let ack = expect!(response);
                     self.set_assigned_address(ack.your_ip_address);
@@ -227,7 +228,7 @@ impl State {
                         expect!(ack.options.address_time),
                     );
                     self.run_timer_renewal();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
@@ -235,14 +236,14 @@ impl State {
             Bound => match to {
                 next @ Renewing => {
                     self.run_timer_rebinding();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             Renewing => match to {
                 next @ RenewingSent => {
                     self.record_request_time();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
@@ -257,25 +258,25 @@ impl State {
                         expect!(ack.options.address_time),
                     );
                     self.run_timer_renewal();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
-                next @ Renewing => self.dhcp_state = next,
+                next @ Renewing => *self.as_mut().project().dhcp_state = next,
                 next @ Rebinding => {
                     self.set_dhcp_server_id(None);
                     self.run_timer_expiration();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             Rebinding => match to {
                 next @ RebindingSent => {
                     self.record_request_time();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
                 _ => panic_state!(from, to),
             },
             RebindingSent => match to {
-                next @ Init => self.dhcp_state = next,
+                next @ Init => *self.as_mut().project().dhcp_state = next,
                 next @ Bound => {
                     let ack = expect!(response);
                     self.set_assigned_address(ack.your_ip_address);
@@ -286,69 +287,69 @@ impl State {
                         expect!(ack.options.address_time),
                     );
                     self.run_timer_renewal();
-                    self.dhcp_state = next;
+                    *self.as_mut().project().dhcp_state = next;
                 }
-                next @ Rebinding => self.dhcp_state = next,
+                next @ Rebinding => *self.as_mut().project().dhcp_state = next,
                 _ => panic_state!(from, to),
             },
         }
     }
 
-    pub fn dhcp_state(&self) -> DhcpState {
-        self.dhcp_state
+    pub fn dhcp_state(self: &mut Pin<&mut Self>) -> DhcpState {
+        *self.as_mut().project().dhcp_state
     }
 
-    pub fn is_broadcast(&self) -> bool {
-        self.is_broadcast
+    pub fn is_broadcast(self: &mut Pin<&mut Self>) -> bool {
+        *self.as_mut().project().is_broadcast
     }
 
-    pub fn xid(&self) -> u32 {
-        self.transaction_id
+    pub fn xid(self: &mut Pin<&mut Self>) -> u32 {
+        *self.as_mut().project().transaction_id
     }
 
-    pub fn offered_address(&self) -> Ipv4Addr {
-        self.offered_address.to_owned()
+    pub fn offered_address(self: &mut Pin<&mut Self>) -> Ipv4Addr {
+        self.as_mut().project().offered_address.to_owned()
     }
 
-    pub fn offered_time(&self) -> u32 {
-        self.offered_time
+    pub fn offered_time(self: &mut Pin<&mut Self>) -> u32 {
+        *self.as_mut().project().offered_time
     }
 
-    pub fn dhcp_server_id(&self) -> Option<Ipv4Addr> {
-        self.dhcp_server_id
+    pub fn dhcp_server_id(self: &mut Pin<&mut Self>) -> Option<Ipv4Addr> {
+        *self.as_mut().project().dhcp_server_id
     }
 
-    pub fn assigned_address(&self) -> Ipv4Addr {
-        self.assigned_address.to_owned()
+    pub fn assigned_address(self: &mut Pin<&mut Self>) -> Ipv4Addr {
+        self.as_mut().project().assigned_address.to_owned()
     }
 
     #[allow(dead_code)]
-    fn set_broadcast(&mut self, value: bool) {
-        self.is_broadcast = value;
+    fn set_broadcast(self: &mut Pin<&mut Self>, value: bool) {
+        *self.as_mut().project().is_broadcast = value;
     }
 
-    fn set_offered_address(&mut self, value: Ipv4Addr) {
-        self.offered_address = value;
+    fn set_offered_address(self: &mut Pin<&mut Self>, value: Ipv4Addr) {
+        *self.as_mut().project().offered_address = value;
     }
 
-    fn set_offered_time(&mut self, value: u32) {
-        self.offered_time = value;
+    fn set_offered_time(self: &mut Pin<&mut Self>, value: u32) {
+        *self.as_mut().project().offered_time = value;
     }
 
-    fn set_dhcp_server_id(&mut self, value: Option<Ipv4Addr>) {
-        self.dhcp_server_id = value;
+    fn set_dhcp_server_id(self: &mut Pin<&mut Self>, value: Option<Ipv4Addr>) {
+        *self.as_mut().project().dhcp_server_id = value;
     }
 
-    fn set_assigned_address(&mut self, value: Ipv4Addr) {
-        self.assigned_address = value;
+    fn set_assigned_address(self: &mut Pin<&mut Self>, value: Ipv4Addr) {
+        *self.as_mut().project().assigned_address = value;
     }
 
-    fn record_request_time(&mut self) {
-        self.requested_at = Instant::now();
+    fn record_request_time(self: &mut Pin<&mut Self>) {
+        *self.as_mut().project().requested_at = Instant::now();
     }
 
     fn set_times(
-        &mut self,
+        self: &mut Pin<&mut Self>,
         renewal_time: Option<u32>,
         rebinding_time: Option<u32>,
         expiration_time: u32,
@@ -359,44 +360,47 @@ impl State {
             rebinding_time.unwrap_or(((expiration_time as f64) * REBINDING_TIME_FACTOR) as u32);
 
         let seconds_since_request = self.requested_at.elapsed().as_secs();
-        self.renewal_after = u64::from(renewal_time).saturating_sub(seconds_since_request);
-        self.rebinding_after = u64::from(rebinding_time).saturating_sub(self.renewal_after);
-        self.expiration_after = u64::from(expiration_time)
+        *self.as_mut().project().renewal_after = u64::from(renewal_time).saturating_sub(seconds_since_request);
+        *self.as_mut().project().rebinding_after = u64::from(rebinding_time).saturating_sub(self.renewal_after);
+        *self.as_mut().project().expiration_after = u64::from(expiration_time)
             .saturating_sub(self.renewal_after)
             .saturating_sub(self.rebinding_after);
     }
 
-    fn run_timer_offer(&mut self) {
-        self.timer_offer = Some(Backoff::new(
+    fn run_timer_offer(self: &mut Pin<&mut Self>) {
+        self.as_mut().project().timer_offer.set(Some(Backoff::new(
             Duration::from_secs(BACKOFF_TIMEOUT_INITIAL),
             Duration::from_secs(BACKOFF_TIMEOUT_MAXIMUM),
-        ));
+        )));
     }
 
-    fn run_timer_ack(&mut self) {
-        self.timer_ack = Some(Backoff::new(
+    fn run_timer_ack(self: &mut Pin<&mut Self>) {
+        self.as_mut().project().timer_ack.set(Some(Backoff::new(
             Duration::from_secs(BACKOFF_TIMEOUT_INITIAL),
             Duration::from_secs(BACKOFF_TIMEOUT_MAXIMUM),
-        ));
+        )));
     }
 
-    fn run_timer_renewal(&mut self) {
-        self.timer_renewal = Some(Delay::new(
-            Instant::now() + Duration::from_secs(self.renewal_after),
-        ));
+    fn run_timer_renewal(self: &mut Pin<&mut Self>) {
+        let renewal_after = *self.as_mut().project().renewal_after;
+        self.as_mut().project().timer_renewal.set(Some(tokio_sleep(
+            Duration::from_secs(renewal_after),
+        )));
     }
 
-    fn run_timer_rebinding(&mut self) {
-        self.timer_rebinding = Some(Forthon::new(
-            Duration::from_secs(self.rebinding_after),
+    fn run_timer_rebinding(self: &mut Pin<&mut Self>) {
+        let rebinding_after = *self.as_mut().project().rebinding_after;
+        self.as_mut().project().timer_rebinding.set(Some(Forthon::new(
+            Duration::from_secs(rebinding_after),
             Duration::from_secs(FORTHON_TIMEOUT_MINIMAL),
-        ));
+        )));
     }
 
-    fn run_timer_expiration(&mut self) {
-        self.timer_expiration = Some(Forthon::new(
-            Duration::from_secs(self.expiration_after),
+    fn run_timer_expiration(self: &mut Pin<&mut Self>) {
+        let expiration_after = *self.as_mut().project().expiration_after;
+        self.as_mut().project().timer_expiration.set(Some(Forthon::new(
+            Duration::from_secs(expiration_after),
             Duration::from_secs(FORTHON_TIMEOUT_MINIMAL),
-        ));
+        )));
     }
 }

@@ -1,9 +1,9 @@
 //! The main DHCP client module.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, pin::Pin, task::{Context, Poll}};
 
 use eui48::MacAddress;
-use futures::{Sink, Stream};
+use futures::{Future, Sink, Stream};
 use hostname;
 use pin_project::pin_project;
 use tokio::io;
@@ -85,6 +85,7 @@ pub struct Client<S> {
     #[pin]
     io: S,
     builder: MessageBuilder,
+    #[pin]
     state: State,
     options: RequestOptions,
 }
@@ -137,7 +138,7 @@ where
     ///
     /// * `address_time`
     /// The requested lease time.
-    /// If not set, a server will choose the lease time by itself.
+    /// If not set, a server will choose the lease time by itthis.
     /// The server may lease the address for different amount of time if it decides so.
     ///
     /// * `max_message_size`
@@ -206,7 +207,7 @@ where
     }
 
     /// Chooses the packet destination address according to the RFC 2131 rules.
-    fn destination(&mut self) -> Ipv4Addr {
+    fn destination(self: &mut Pin<&mut Self>) -> Ipv4Addr {
         /*
         RFC 2131 §4.4.4
         The DHCP client broadcasts DhcpDiscover, DhcpRequest and DHCPINFORM
@@ -224,11 +225,12 @@ where
         client reverts to using the IP broadcast address.
         */
 
+        let mut this = self.as_mut().project();
         // Raw socket may not support unicasting
-        if self.io.mode() == SocketMode::Raw {
+        if this.io.mode() == SocketMode::Raw {
             Ipv4Addr::new(255, 255, 255, 255)
         } else {
-            if let Some(dhcp_server_id) = self.state.dhcp_server_id() {
+            if let Some(dhcp_server_id) = this.state.dhcp_server_id() {
                 dhcp_server_id
             } else {
                 Ipv4Addr::new(255, 255, 255, 255)
@@ -237,26 +239,26 @@ where
     }
 
     /// Sends a request.
-    fn send_request(&mut self, request: Message) -> io::Result<()> {
+    fn send_request(self: &mut Pin<&mut Self>, request: Message) -> io::Result<()> {
         let destination = self.destination();
+        let this = self.as_mut().project();
         log_send!(request, destination);
 
         let destination = SocketAddr::new(IpAddr::V4(destination), DHCP_PORT_SERVER);
-        start_send!(self.io, destination, (request, None));
+        start_send!(this.io, destination, (request, None));
         Ok(())
     }
 }
 
 impl<IO> Stream for Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
-        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+    IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+        + Sink<DhcpSinkItem, Error = io::Error>
         + ModeSwitch
         + Send
         + Sync,
 {
-    type Item = Configuration;
-    type Error = io::Error;
+    type Item = Result<Configuration, io::Error>;
 
     /// Yields a `Configuration` after each configuration update.
     ///
@@ -306,11 +308,10 @@ where
     ///                              ----------
     ///
     /// [RFC 2131](https://tools.ietf.org/html/rfc2131)
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            poll_complete!(self.io);
-
-            match self.state.dhcp_state() {
+            poll_complete!(self.as_mut().project().io, cx);
+            match self.as_mut().project().state.dhcp_state() {
                 current @ DhcpState::Init => {
                     /*
                     RFC 2131 §4.4.1
@@ -318,8 +319,8 @@ where
                     The client MAY suggest a network address and/or lease time by including
                     the 'requested IP address' and 'IP address lease time' options.
                     */
-                    self.io.switch_to(SocketMode::Raw)?;
-                    self.state.transcend(current, DhcpState::Selecting, None);
+                    self.as_mut().project().io.switch_to(SocketMode::Raw)?;
+                    self.as_mut().project().state.transcend(current, DhcpState::Selecting, None);
                 }
                 current @ DhcpState::Selecting => {
                     /*
@@ -329,31 +330,34 @@ where
                     field and sends that address in the 'server identifier' field of a
                     DhcpRequest broadcast message.
                     */
-
-                    let request = self.builder.discover(
-                        self.state.xid(),
-                        self.state.is_broadcast(),
-                        self.options.address_request,
-                        self.options.address_time,
+                    let xid = self.as_mut().project().state.xid();
+                    let is_broadcast = self.as_mut().project().state.is_broadcast();
+                    let address_request = self.as_mut().project().options.address_request;
+                    let address_time = self.as_mut().project().options.address_time;
+                    let request = self.as_mut().project().builder.discover(
+                        xid,
+                        is_broadcast,
+                        address_request,
+                        address_time,
                     );
 
                     self.send_request(request)?;
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::SelectingSent, None);
                 }
                 current @ DhcpState::SelectingSent => {
-                    let (addr, response) = match self.io.poll() {
-                        Ok(Async::Ready(Some(data))) => data,
-                        Ok(Async::Ready(None)) => {
-                            warn!("Received an invalid packet");
+                    let (addr, response) = match self.as_mut().project().io.poll_next(cx) {
+                        Poll::Ready(Some(Ok(data))) => data,
+                        Poll::Ready(None) => {
+                            error!("UDP socket reports end of stream");
                             continue;
                         }
-                        Ok(Async::NotReady) => {
-                            poll_backoff!(self.state.timer_offer);
-                            self.state.transcend(current, DhcpState::Selecting, None);
+                        Poll::Pending => {
+                            poll_backoff!(self.as_mut().project().state.project().timer_offer, cx);
+                            self.as_mut().project().state.transcend(current, DhcpState::Selecting, None);
                             continue;
                         }
-                        Err(error) => {
+                        Poll::Ready(Some(Err(error))) => {
                             warn!("Socket error: {}", error);
                             continue;
                         }
@@ -361,9 +365,9 @@ where
 
                     let dhcp_message_type = validate!(response, addr);
                     log_receive!(response, addr.ip());
-                    check_xid!(self.state.xid(), response.transaction_id);
+                    check_xid!(self.as_mut().project().state.xid(), response.transaction_id);
                     check_message_type!(dhcp_message_type, MessageType::DhcpOffer);
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::Requesting, Some(&response));
                 }
                 current @ DhcpState::Requesting => {
@@ -373,35 +377,41 @@ where
                     the client is initialized and moves to BOUND state.
                     */
 
-                    let request = self.builder.request_selecting(
-                        self.state.xid(),
-                        self.state.is_broadcast(),
-                        self.state.offered_address(),
-                        Some(self.state.offered_time()),
-                        expect!(self.state.dhcp_server_id()),
+                    let xid = self.as_mut().project().state.xid();
+                    let is_broadcast = self.as_mut().project().state.is_broadcast();
+                    let offered_address = self.as_mut().project().state.offered_address();
+                    let offered_time = Some(self.as_mut().project().state.offered_time());
+                    let dhcp_server_id = expect!(self.as_mut().project().state.dhcp_server_id());
+                    let request = self.as_mut().project().builder.request_selecting(
+                        xid,
+                        is_broadcast,
+                        offered_address,
+                        offered_time,
+                        dhcp_server_id,
                     );
 
                     self.send_request(request)?;
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::RequestingSent, None);
                 }
                 current @ DhcpState::RequestingSent => {
-                    let (addr, response) = match self.io.poll() {
-                        Ok(Async::Ready(Some(data))) => data,
-                        Ok(Async::Ready(None)) => {
-                            warn!("Received an invalid packet");
+                    let (addr, response) = match self.as_mut().project().io.poll_next(cx) {
+                        Poll::Ready(Some(Ok(data))) => data,
+                        Poll::Ready(None) => {
+                            error!("UDP socket reports end of stream");
                             continue;
                         }
-                        Ok(Async::NotReady) => {
+                        Poll::Pending => {
                             let next = poll_backoff!(
-                                self.state.timer_ack,
+                                self.as_mut().project().state.project().timer_ack,
+                                cx,
                                 DhcpState::Requesting,
                                 DhcpState::Init
                             );
-                            self.state.transcend(current, next, None);
+                            self.as_mut().project().state.transcend(current, next, None);
                             continue;
                         }
-                        Err(error) => {
+                        Poll::Ready(Some(Err(error))) => {
                             warn!("Socket error: {}", error);
                             continue;
                         }
@@ -409,12 +419,12 @@ where
 
                     let dhcp_message_type = validate!(response, addr);
                     log_receive!(response, addr.ip());
-                    check_xid!(self.state.xid(), response.transaction_id);
+                    check_xid!(self.as_mut().project().state.xid(), response.transaction_id);
 
                     match dhcp_message_type {
                         MessageType::DhcpNak => {
                             warn!("Got {} in {} state", dhcp_message_type, current);
-                            self.state.transcend(current, DhcpState::Init, None);
+                            self.as_mut().project().state.transcend(current, DhcpState::Init, None);
                             continue;
                         }
                         MessageType::DhcpAck => {}
@@ -424,9 +434,9 @@ where
                         }
                     }
 
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::Bound, Some(&response));
-                    return Ok(Async::Ready(Some(Configuration::from_response(response))));
+                    return Poll::Ready(Some(Ok(Configuration::from_response(response))));
                 }
 
                 current @ DhcpState::InitReboot => {
@@ -436,8 +446,8 @@ where
                     message.  The client MUST insert its known network address as a
                     'requested IP address' option in the DhcpRequest message.
                     */
-                    self.io.switch_to(SocketMode::Raw)?;
-                    self.state.transcend(current, DhcpState::Rebooting, None);
+                    self.as_mut().project().io.switch_to(SocketMode::Raw)?;
+                    self.as_mut().project().state.transcend(current, DhcpState::Rebooting, None);
                 }
                 current @ DhcpState::Rebooting => {
                     /*
@@ -447,34 +457,39 @@ where
                     initialized and moves to BOUND state.
                     */
 
-                    let request = self.builder.request_init_reboot(
-                        self.state.xid(),
-                        self.state.is_broadcast(),
-                        expect!(self.options.address_request),
-                        self.options.address_time,
+                    let xid = self.as_mut().project().state.xid();
+                    let is_broadcast = self.as_mut().project().state.is_broadcast();
+                    let address_request = expect!(self.as_mut().project().options.address_request);
+                    let address_time = self.as_mut().project().options.address_time;
+                    let request = self.as_mut().project().builder.request_init_reboot(
+                        xid,
+                        is_broadcast,
+                        address_request,
+                        address_time,
                     );
 
                     self.send_request(request)?;
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::RebootingSent, None);
                 }
                 current @ DhcpState::RebootingSent => {
-                    let (addr, response) = match self.io.poll() {
-                        Ok(Async::Ready(Some(data))) => data,
-                        Ok(Async::Ready(None)) => {
-                            warn!("Received an invalid packet");
+                    let (addr, response) = match self.as_mut().project().io.poll_next(cx) {
+                        Poll::Ready(Some(Ok(data))) => data,
+                        Poll::Ready(None) => {
+                            error!("UDP socket reports end of stream");
                             continue;
                         }
-                        Ok(Async::NotReady) => {
+                        Poll::Pending => {
                             let next = poll_backoff!(
-                                self.state.timer_ack,
+                                self.as_mut().project().state.project().timer_ack,
+                                cx,
                                 DhcpState::Rebooting,
                                 DhcpState::Init
                             );
-                            self.state.transcend(current, next, None);
+                            self.as_mut().project().state.transcend(current, next, None);
                             continue;
                         }
-                        Err(error) => {
+                        Poll::Ready(Some(Err(error))) => {
                             warn!("Socket error: {}", error);
                             continue;
                         }
@@ -482,12 +497,12 @@ where
 
                     let dhcp_message_type = validate!(response, addr);
                     log_receive!(response, addr.ip());
-                    check_xid!(self.state.xid(), response.transaction_id);
+                    check_xid!(self.as_mut().project().state.xid(), response.transaction_id);
 
                     match dhcp_message_type {
                         MessageType::DhcpNak => {
                             warn!("Got {} in {} state", dhcp_message_type, current);
-                            self.state.transcend(current, DhcpState::Init, None);
+                            self.as_mut().project().state.transcend(current, DhcpState::Init, None);
                             continue;
                         }
                         MessageType::DhcpAck => {}
@@ -497,9 +512,9 @@ where
                         }
                     }
 
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::Bound, Some(&response));
-                    return Ok(Async::Ready(Some(Configuration::from_response(response))));
+                    return Poll::Ready(Some(Ok(Configuration::from_response(response))));
                 }
 
                 current @ DhcpState::Bound => {
@@ -513,9 +528,9 @@ where
                     client MUST NOT include a 'server identifier' in the DHCPREQUEST
                     message.
                     */
-                    poll_delay!(self.state.timer_renewal);
-                    self.io.switch_to(SocketMode::Udp)?;
-                    self.state.transcend(current, DhcpState::Renewing, None);
+                    poll_delay!(self.as_mut().project().state.project().timer_renewal, cx);
+                    self.as_mut().project().io.switch_to(SocketMode::Udp)?;
+                    self.as_mut().project().state.transcend(current, DhcpState::Renewing, None);
                 }
                 current @ DhcpState::Renewing => {
                     /*
@@ -527,33 +542,38 @@ where
                     identifier' in the DHCPREQUEST message.
                     */
 
-                    let request = self.builder.request_renew(
-                        self.state.xid(),
-                        self.state.is_broadcast(),
-                        self.state.assigned_address(),
-                        self.options.address_time,
+                    let xid = self.as_mut().project().state.xid();
+                    let is_broadcast = self.as_mut().project().state.is_broadcast();
+                    let assigned_address = self.as_mut().project().state.assigned_address();
+                    let address_time = self.as_mut().project().options.address_time;
+                    let request = self.as_mut().project().builder.request_renew(
+                        xid,
+                        is_broadcast,
+                        assigned_address,
+                        address_time,
                     );
 
                     self.send_request(request)?;
-                    self.state.transcend(current, DhcpState::RenewingSent, None);
+                    self.as_mut().project().state.transcend(current, DhcpState::RenewingSent, None);
                 }
                 current @ DhcpState::RenewingSent => {
-                    let (addr, response) = match self.io.poll() {
-                        Ok(Async::Ready(Some(data))) => data,
-                        Ok(Async::Ready(None)) => {
-                            warn!("Received an invalid packet");
+                    let (addr, response) = match self.as_mut().project().io.poll_next(cx) {
+                        Poll::Ready(Some(Ok(data))) => data,
+                        Poll::Ready(None) => {
+                            error!("UDP socket reports end of stream");
                             continue;
                         }
-                        Ok(Async::NotReady) => {
+                        Poll::Pending => {
                             let next = poll_forthon!(
-                                self.state.timer_rebinding,
+                                self.as_mut().project().state.project().timer_rebinding,
+                                cx,
                                 DhcpState::Renewing,
                                 DhcpState::Rebinding
                             );
-                            self.state.transcend(current, next, None);
+                            self.as_mut().project().state.transcend(current, next, None);
                             continue;
                         }
-                        Err(error) => {
+                        Poll::Ready(Some(Err(error))) => {
                             warn!("Socket error: {}", error);
                             continue;
                         }
@@ -561,12 +581,12 @@ where
 
                     let dhcp_message_type = validate!(response, addr);
                     log_receive!(response, addr.ip());
-                    check_xid!(self.state.xid(), response.transaction_id);
+                    check_xid!(self.as_mut().project().state.xid(), response.transaction_id);
                     check_message_type!(dhcp_message_type, MessageType::DhcpAck);
 
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::Bound, Some(&response));
-                    return Ok(Async::Ready(Some(Configuration::from_response(response))));
+                    return Poll::Ready(Some(Ok(Configuration::from_response(response))));
                 }
                 current @ DhcpState::Rebinding => {
                     /*
@@ -581,39 +601,44 @@ where
                     address and SHOULD notify the local users of the problem.
                     */
 
-                    let request = self.builder.request_renew(
-                        self.state.xid(),
-                        self.state.is_broadcast(),
-                        self.state.assigned_address(),
-                        self.options.address_time,
+                    let xid = self.as_mut().project().state.xid();
+                    let is_broadcast = self.as_mut().project().state.is_broadcast();
+                    let assigned_address = self.as_mut().project().state.assigned_address();
+                    let address_time = self.as_mut().project().options.address_time;
+                    let request = self.as_mut().project().builder.request_renew(
+                        xid,
+                        is_broadcast,
+                        assigned_address,
+                        address_time,
                     );
 
                     // RFC 2131 §4.4.5 If no DHCPACK arrives before time T2, the client moves to REBINDING
                     // state and sends (via broadcast) a DHCPREQUEST message to extend its
                     // lease.
-                    self.io.switch_to(SocketMode::Raw)?;
+                    self.as_mut().project().io.switch_to(SocketMode::Raw)?;
 
                     self.send_request(request)?;
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::RebindingSent, None);
                 }
                 current @ DhcpState::RebindingSent => {
-                    let (addr, response) = match self.io.poll() {
-                        Ok(Async::Ready(Some(data))) => data,
-                        Ok(Async::Ready(None)) => {
-                            warn!("Received an invalid packet");
+                    let (addr, response) = match self.as_mut().project().io.poll_next(cx) {
+                        Poll::Ready(Some(Ok(data))) => data,
+                        Poll::Ready(None) => {
+                            error!("UDP socket reports end of stream");
                             continue;
                         }
-                        Ok(Async::NotReady) => {
+                        Poll::Pending => {
                             let next = poll_forthon!(
-                                self.state.timer_expiration,
+                                self.as_mut().project().state.project().timer_expiration,
+                                cx,
                                 DhcpState::Rebinding,
                                 DhcpState::Init
                             );
-                            self.state.transcend(current, next, None);
+                            self.as_mut().project().state.transcend(current, next, None);
                             continue;
                         }
-                        Err(error) => {
+                        Poll::Ready(Some(Err(error))) => {
                             warn!("Socket error: {}", error);
                             continue;
                         }
@@ -621,36 +646,35 @@ where
 
                     let dhcp_message_type = validate!(response, addr);
                     log_receive!(response, addr.ip());
-                    check_xid!(self.state.xid(), response.transaction_id);
+                    check_xid!(self.as_mut().project().state.xid(), response.transaction_id);
                     check_message_type!(dhcp_message_type, MessageType::DhcpAck);
 
-                    self.state
+                    self.as_mut().project().state
                         .transcend(current, DhcpState::Bound, Some(&response));
-                    return Ok(Async::Ready(Some(Configuration::from_response(response))));
+                    return Poll::Ready(Some(Ok(Configuration::from_response(response))));
                 }
             }
         }
     }
 }
 
-impl<IO> Sink for Client<IO>
+impl<IO> Sink<Command> for Client<IO>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
-        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
+    IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+        + Sink<DhcpSinkItem, Error = io::Error>
         + Send
         + Sync,
 {
-    type SinkItem = Command;
-    type SinkError = io::Error;
+    type Error = io::Error;
 
     /// Translates a `Command` into a DHCP message and sends it to the user provided `Sink`.
     fn start_send(
-        &mut self,
-        command: Self::SinkItem,
-    ) -> StartSend<Self::SinkItem, Self::SinkError> {
+        mut self: Pin<&mut Self>,
+        command: Command,
+    ) -> Result<(), Self::Error> {
         let (request, destination) = match command {
             Command::Release { ref message } => {
-                let dhcp_server_id = match self.state.dhcp_server_id() {
+                let dhcp_server_id = match self.as_mut().project().state.dhcp_server_id() {
                     Some(dhcp_server_id) => dhcp_server_id,
                     None => {
                         return Err(io::Error::new(
@@ -660,9 +684,11 @@ where
                     }
                 };
                 let destination = SocketAddr::new(IpAddr::V4(dhcp_server_id), DHCP_PORT_SERVER);
-                let request = self.builder.release(
-                    self.state.xid(),
-                    self.state.assigned_address(),
+                let xid = self.as_mut().project().state.xid();
+                let assigned_address = self.as_mut().project().state.assigned_address();
+                let request = self.as_mut().project().builder.release(
+                    xid,
+                    assigned_address,
                     dhcp_server_id,
                     message.to_owned(),
                 );
@@ -672,7 +698,7 @@ where
                 ref address,
                 ref message,
             } => {
-                let dhcp_server_id = match self.state.dhcp_server_id() {
+                let dhcp_server_id = match self.as_mut().project().state.dhcp_server_id() {
                     Some(dhcp_server_id) => dhcp_server_id,
                     None => {
                         return Err(io::Error::new(
@@ -685,8 +711,9 @@ where
                     IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)),
                     DHCP_PORT_SERVER,
                 );
-                let request = self.builder.decline(
-                    self.state.xid(),
+                let xid = self.as_mut().project().state.xid();
+                let request = self.as_mut().project().builder.decline(
+                    xid,
                     address.to_owned(),
                     dhcp_server_id,
                     message.to_owned(),
@@ -694,14 +721,16 @@ where
                 (request, destination)
             }
             Command::Inform { ref address } => {
-                let dhcp_server_id = match self.state.dhcp_server_id() {
+                let dhcp_server_id = match self.as_mut().project().state.dhcp_server_id() {
                     Some(dhcp_server_id) => dhcp_server_id,
                     None => Ipv4Addr::new(255, 255, 255, 255),
                 };
                 let destination = SocketAddr::new(IpAddr::V4(dhcp_server_id), DHCP_PORT_SERVER);
-                let request = self.builder.inform(
-                    self.state.xid(),
-                    self.state.is_broadcast(),
+                let xid = self.as_mut().project().state.xid();
+                let is_broadcast = self.as_mut().project().state.is_broadcast();
+                let request = self.as_mut().project().builder.inform(
+                    xid,
+                    is_broadcast,
                     address.to_owned(),
                 );
                 (request, destination)
@@ -709,20 +738,24 @@ where
         };
 
         log_send!(request, destination);
-        match self.io.start_send((destination, (request, None))) {
-            Ok(AsyncSink::Ready) => Ok(AsyncSink::Ready),
-            Ok(AsyncSink::NotReady(_item)) => Ok(AsyncSink::NotReady(command)),
+        match self.as_mut().project().io.start_send((destination, (request, None))) {
+            Ok(()) => Ok(()),
             Err(error) => Err(error),
         }
     }
 
     /// Just a proxy.
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.io.poll_complete()
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().io.poll_ready(cx)
     }
 
     /// Just a proxy.
-    fn close(&mut self) -> Poll<(), Self::SinkError> {
-        self.poll_complete()
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().io.poll_flush(cx)
+    }
+
+    /// Just a proxy.
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().io.poll_close(cx)
     }
 }

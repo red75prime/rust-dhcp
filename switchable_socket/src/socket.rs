@@ -58,11 +58,11 @@ pub enum SocketMode {
 /// Allows socket mode switch
 pub trait ModeSwitch {
     /// Switches socket mode
-    fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error>;
+    fn switch_to(self: Pin<&mut Self>, mode: SocketMode) -> Result<(), io::Error>;
     /// Returns current socket mode
-    fn mode(&self) -> SocketMode;
+    fn mode(self: Pin<&mut Self>) -> SocketMode;
     /// Device (interface) name this socket is bound to
-    fn device_name(&self) -> &str;
+    fn device_name(self: Pin<&mut Self>) -> &str;
 }
 
 /// Either UDP or RAW socket
@@ -157,30 +157,33 @@ where
 
 impl<R, U, MR, MU> ModeSwitch for SwitchableUdpSocket<R, U, MR, MU>
 where
-    MR: MakeSocket<Socket = R>,
-    MU: MakeSocket<Socket = U>,
+    R: Unpin,
+    U: Unpin,
+    MR: Unpin + MakeSocket<Socket = R>,
+    MU: Unpin + MakeSocket<Socket = U>,
 {
-    fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error> {
+    fn switch_to(mut self: Pin<&mut Self>, mode: SocketMode) -> Result<(), io::Error> {
         debug!("Entering listen mode {:?}", mode);
-        if mode != self.mode() {
+        if mode != self.as_mut().mode() {
+            let this = Pin::into_inner(self);
             debug!("Switching listen mode to {:?}", mode);
-            self.socket = new_socket(
-                &self.iface,
-                self.port,
+            this.socket = new_socket(
+                &this.iface,
+                this.port,
                 mode,
-                &mut self.make_raw,
-                &mut self.make_udp,
+                &mut this.make_raw,
+                &mut this.make_udp,
             )?;
         }
         Ok(())
     }
 
-    fn mode(&self) -> SocketMode {
-        self.socket.mode()
+    fn mode(self: Pin<&mut Self>) -> SocketMode {
+        Pin::into_inner(self).socket.mode()
     }
 
-    fn device_name(&self) -> &str {
-        &self.iface
+    fn device_name(self: Pin<&mut Self>) -> &str {
+        &Pin::into_inner(self).iface
     }
 }
 

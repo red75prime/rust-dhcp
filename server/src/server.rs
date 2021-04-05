@@ -1,9 +1,12 @@
 //! The main DHCP server module.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
+use futures::{Future, Stream, Sink};
 use hostname;
-use tokio::{io, prelude::*};
+use tokio::io;
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use dhcp_arp;
@@ -130,8 +133,8 @@ where
     /// Consumes the builder and returns the built server.
     pub fn finish_with_channel<C>(self, channel: C) -> io::Result<GenericServer<S,C>>
     where
-        C: Stream<Item = DhcpStreamItem, Error = io::Error> +
-            Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+        C: Stream<Item = Result<DhcpStreamItem, io::Error>> +
+            Sink<DhcpSinkItem, Error = io::Error>,
     {
         GenericServer::with_channel(
             channel,
@@ -156,8 +159,8 @@ pub type Server<S> = GenericServer<S, DhcpFramed<UdpSocket>>;
 pub struct GenericServer<S, C>
 where
     S: Storage,
-    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
-        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+    C: Stream<Item = Result<DhcpStreamItem, io::Error>> +
+        Sink<DhcpSinkItem, Error = io::Error>,
 {
     /// The server UDP socket.
     socket: C,
@@ -236,8 +239,8 @@ where
 impl<S, C> GenericServer<S, C>
 where
     S: Storage,
-    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
-        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+    C: Stream<Item = Result<DhcpStreamItem, io::Error>> +
+        Sink<DhcpSinkItem, Error = io::Error>,
 {
     /// Creates a server future.
     #[allow(unused_variables)]
@@ -362,16 +365,15 @@ where
 impl<S, C> Future for GenericServer<S, C>
 where
     S: Storage,
-    C: Stream<Item = DhcpStreamItem, Error = io::Error> +
-        Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>,
+    C: Stream<Item = Result<DhcpStreamItem, io::Error>> +
+        Sink<DhcpSinkItem, Error = io::Error>,
 {
-    type Item = ();
-    type Error = io::Error;
+    type Output = ();
 
     /// Works infinite time.
     ///
     /// [RFC 2131](https://tools.ietf.org/html/rfc2131)
-    fn poll(&mut self) -> Poll<(), io::Error> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         loop {
             #[cfg(target_os = "windows")]
             {
