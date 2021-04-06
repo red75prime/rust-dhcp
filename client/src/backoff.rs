@@ -55,7 +55,7 @@ impl Backoff {
     /// The maximal timeout duration, inclusively.
     pub fn new(minimal: Duration, maximal: Duration) -> Backoff {
         let with_rand = Self::randomize(&minimal);
-
+        trace!("Backoff::new: sleep {:?}", with_rand);
         Backoff {
             current: minimal,
             with_rand,
@@ -83,6 +83,7 @@ impl Stream for Backoff {
 
     /// Yields seconds slept and the expiration flag.
     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        trace!("Backoff::poll_next");
         let mut this = self.project();
         ready!(this.timeout.as_mut().poll(cx));
         let seconds = this.with_rand.as_secs();

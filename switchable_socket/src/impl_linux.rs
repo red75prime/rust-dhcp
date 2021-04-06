@@ -57,7 +57,8 @@ impl RawUdpSocketV4 {
             let read_buf = &mut self.read_buf;
             let result = read_guard.try_io(|io| {
                 let fd = io.get_ref().fd;
-                read_fd(fd, read_buf)
+                let res = read_fd(fd, read_buf);
+                res
             });
             let n = match result {
                 Err(_) => {
@@ -98,7 +99,9 @@ impl RawUdpSocketV4 {
                     if log_enabled!(log::Level::Trace) {
                         // don't log payload
                         packet.payload = &[];
-                        trace!("Ignoring {:02x?}", packet);
+                        if !matches!(packet.transport, Some(TransportSlice::Tcp(..))) {
+                            trace!("Ignoring {:02x?}", packet);
+                        }
                     }
                 }
                 _ => {
@@ -278,9 +281,13 @@ impl RawSocket {
                 return Err(io::Error::last_os_error());
             }
             let flags = fcntl(fd, F_GETFL);
-            if fcntl(fd, F_SETFD, flags | O_NONBLOCK) != 0 {
+            if fcntl(fd, F_SETFL, flags | O_NONBLOCK) != 0 {
                 return Err(io::Error::last_os_error());
             }
+            // let opt: libc::c_int = 1;
+            // if ioctl(fd, FIONBIO, &opt as *const libc::c_int) != 0 {
+            //     return Err(io::Error::last_os_error());
+            // }
             Ok(RawSocket { fd, ifindex })
         }
     }
@@ -290,7 +297,7 @@ impl Drop for RawSocket {
     fn drop(&mut self) {
         let ret = unsafe { libc::close(self.fd) };
         if ret != 0 {
-            error!("RawMioSocket::drop(): {:?}", io::Error::last_os_error());
+            error!("RawSocket::drop(): {:?}", io::Error::last_os_error());
         }
     }
 }

@@ -33,13 +33,16 @@ macro_rules! start_send (
 /// Just to move some code from the overwhelmed `poll` method.
 macro_rules! poll_complete (
     ($socket:expr, $cx:expr) => (
-        match Pin::new(&mut $socket).poll_ready($cx) {
+        match $socket.poll_ready($cx) {
             Poll::Ready(Ok(())) => {},
-            Poll::Pending => return Poll::Pending,
+            Poll::Pending => {
+                // waker is registered
+                // continue
+            },
             Poll::Ready(Err(error)) => {
                 warn!("Socket error: {}", error);
-                // continue;
-                return Poll::Ready(Some(Err(error)));
+                // report error
+                Err(error)?;
             },
         }
     );
@@ -95,63 +98,54 @@ macro_rules! poll_delay (
 
 /// Just to move some code from the overwhelmed `poll` method.
 macro_rules! poll_backoff (
-    ($backoff:expr, $cx:expr) => (
-        if let Some(backoff) = $backoff.as_pin_mut() {
-            match backoff.poll_next($cx) {
-                Poll::Ready(Some((secs, expired))) => {
-                    warn!("No responses after {} seconds", secs);
-                    if expired {
-                        return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout"))));
-                    }
-                },
-                Poll::Ready(None) => panic!("Timer returned None"),
-                Poll::Pending => return Poll::Pending,
-//                Err(error) => panic!("Timer error: {}", error),
-            }
-        } else {
-            panic!("A bug in the timer setting logic");
+    ($poll_result:expr) => (
+        match $poll_result {
+            Poll::Ready(Some((secs, expired))) => {
+                warn!("No responses after {} seconds", secs);
+                if expired {
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "Timeout"))?;
+                }
+            },
+            Poll::Ready(None) => {
+                error!("Timer stream terminated");
+                return Poll::Ready(None);
+            },
+            Poll::Pending => return Poll::Pending,
         }
     );
-    ($backoff:expr, $cx:expr, $revert:expr, $restart:expr) => (
-        if let Some(backoff) = $backoff.as_pin_mut() {
-            match backoff.poll_next($cx) {
-                Poll::Ready(Some((secs, expired))) => {
-                    warn!("No responses after {} seconds", secs);
-                    if expired {
-                        $restart
-                    } else {
-                        $revert
-                    }
-                },
-                Poll::Ready(None) => panic!("Timer returned None"),
-                Poll::Pending => return Poll::Pending,
-//                Err(error) => panic!("Timer error: {}", error),
-            }
-        } else {
-            panic!("A bug in the timer setting logic");
+    ($poll_result:expr, $revert:expr, $restart:expr) => (
+        match $poll_result {
+            Poll::Ready(Some((secs, expired))) => {
+                warn!("No responses after {} seconds", secs);
+                if expired {
+                    $restart
+                } else {
+                    $revert
+                }
+            },
+            Poll::Ready(None) => {
+                error!("Timer stream terminated");
+                return Poll::Ready(None);
+            },
+            Poll::Pending => return Poll::Pending,
         }
     );
 );
 
 /// Just to move some code from the overwhelmed `poll` method.
 macro_rules! poll_forthon (
-    ($forthon:expr, $cx:expr, $revert:expr, $restart:expr) => (
-        if let Some(forthon) = $forthon.as_pin_mut() {
-            match forthon.poll_next($cx) {
-                Poll::Ready(Some((secs, expired))) => {
-                    warn!("No responses after {} seconds", secs);
-                    if expired {
-                        $restart
-                    } else {
-                        $revert
-                    }
-                },
-                Poll::Ready(None) => panic!("Timer returned None"),
-                Poll::Pending => return Poll::Pending,
-//                Err(error) => panic!("Timer error: {}", error),
-            }
-        } else {
-            panic!("A bug in the timer setting logic");
+    ($poll_result:expr, $revert:expr, $restart:expr) => (
+        match $poll_result {
+            Poll::Ready(Some((secs, expired))) => {
+                warn!("No responses after {} seconds", secs);
+                if expired {
+                    $restart
+                } else {
+                    $revert
+                }
+            },
+            Poll::Ready(None) => panic!("Timer returned None"),
+            Poll::Pending => return Poll::Pending,
         }
     );
 );

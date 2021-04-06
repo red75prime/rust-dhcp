@@ -2,10 +2,11 @@
 name = "dhcp-client"
 version = "0.1.0"
 authors = ["hedgar <hedgar2017@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 log = "0.4.3"
-tokio = { version = "1.4", features = ["time"] }
+tokio = { version = "1.4", features = ["time", "rt"] }
 futures = "0.3"
 bytes = "0.4.8"
 eui48 = "0.4.1"

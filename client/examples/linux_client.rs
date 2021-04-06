@@ -4,27 +4,13 @@
 
 #[macro_use]
 extern crate log;
-extern crate tokio;
-#[macro_use]
-extern crate futures;
-extern crate env_logger;
-extern crate eui48;
-extern crate rand;
 
-extern crate dhcp_client;
-extern crate dhcp_framed;
-extern crate dhcp_protocol;
-extern crate switchable_socket;
+use std::{io, net::{Ipv4Addr, SocketAddr}, pin::Pin, task::{Context, Poll}};
 
-extern crate net2;
-
-use std::{
-    io,
-    net::{Ipv4Addr, SocketAddr},
-};
+use pin_project::pin_project;
 
 use eui48::MacAddress;
-use tokio::prelude::*;
+use futures::{Future, Sink, SinkExt, Stream, StreamExt, ready};
 
 use dhcp_client::{Client, Command};
 use dhcp_framed::{
@@ -37,60 +23,81 @@ use switchable_socket::dummy;
 use switchable_socket::linux;
 use switchable_socket::ModeSwitch;
 
-struct SuperClient<IO> {
-    inner: Client<IO>,
-    counter: u64,
-}
+// #[pin_project]
+// struct SuperClient<IO> {
+//     #[pin]
+//     inner: Client<IO>,
+//     counter: u64,
+// }
 
-impl<IO> SuperClient<IO>
+// impl<IO> SuperClient<IO>
+// where
+//     IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+//         + Sink<DhcpSinkItem, Error = io::Error>
+//         + ModeSwitch
+//         + Send
+//         + Sync,
+// {
+//     pub fn new(client: Client<IO>) -> Self {
+//         SuperClient {
+//             inner: client,
+//             counter: 0,
+//         }
+//     }
+// }
+
+// impl<IO> Future for SuperClient<IO>
+// where
+//     IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+//     + Sink<DhcpSinkItem, Error = io::Error>
+//     + ModeSwitch
+//     + Send
+//     + Sync,
+// {
+//     type Output = Result<(), io::Error>;
+
+//     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+//         loop {
+//             let result =
+//                 ready!(self.as_mut().project().inner.poll_next(cx)).expect("The client returned None but it must not");
+//             info!("{:?}", result);
+//             *self.as_mut().project().counter += 1;
+//             if *self.as_mut().project().counter >= 5 {
+//                 ready!(self.as_mut().project().inner.poll_ready(cx))?;
+//                 self.as_mut().project().inner.start_send(Command::Release { message: None })?;
+//                 break;
+//             }
+//         }
+//         Poll::Ready(Ok(()))
+//     }
+// }
+
+async fn super_client<IO>(client: Client<IO>) -> Result<(), io::Error>
 where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
-        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
-        + ModeSwitch
-        + Send
-        + Sync,
+    IO: Stream<Item = Result<DhcpStreamItem, io::Error>>
+    + Sink<DhcpSinkItem, Error = io::Error>
+    + ModeSwitch
+    + Send
+    + Sync,
 {
-    pub fn new(client: Client<IO>) -> Self {
-        SuperClient {
-            inner: client,
-            counter: 0,
+    futures::pin_mut!(client);
+    let mut counter = 0;
+    loop {
+        let result = client.next().await.expect("The client returned None but it must not");
+        info!("{:?}", result);
+        counter += 1;
+        if counter >= 5 {
+            client.send(Command::Release { message: None}).await?;
         }
-    }
-}
-
-impl<IO> Future for SuperClient<IO>
-where
-    IO: Stream<Item = DhcpStreamItem, Error = io::Error>
-        + Sink<SinkItem = DhcpSinkItem, SinkError = io::Error>
-        + ModeSwitch
-        + Send
-        + Sync,
-{
-    type Item = ();
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        loop {
-            let result =
-                try_ready!(self.inner.poll()).expect("The client returned None but it must not");
-            info!("{:?}", result);
-            self.counter += 1;
-            if self.counter >= 5 {
-                self.inner.start_send(Command::Release { message: None })?;
-                self.inner.poll_complete()?;
-                break;
-            }
-        }
-        Ok(Async::Ready(()))
     }
 }
 
 fn main() {
     std::env::set_var("RUST_BACKTRACE", "1");
-    std::env::set_var("RUST_LOG", "client=trace,dhcp_client=trace");
+    std::env::set_var("RUST_LOG", "trace,tokio=trace,client=trace,dhcp_client=trace");
     env_logger::init();
 
-    let iface_str = "ens33";
+    let iface_str = "eth0";
 
     let server_address = None;
     let client_address = None;
@@ -98,35 +105,38 @@ fn main() {
     let address_time = Some(60);
     let max_message_size = Some(SIZE_MESSAGE_MINIMAL as u16);
 
-    #[cfg(target_os = "linux")]
-    let switchable_socket = {
-        let buffer_capacity = std::cmp::max(BUFFER_WRITE_CAPACITY, BUFFER_READ_CAPACITY);
-        linux::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT, buffer_capacity)
-            .expect("Cannot create switchable socket")
-    };
-    #[cfg(not(target_os = "linux"))]
-    let switchable_socket = dummy::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT)
-        .expect("Cannot create switchable socket");
 
-    let dhcp_framed = DhcpFramed::new(switchable_socket).expect("Cannot create DhcpFramed");
-
-    let request_static_routes = false;
-
-    let client = SuperClient::new(Client::new(
-        dhcp_framed,
-        MacAddress::new([0x00, 0x0c, 0x29, 0x13, 0x0e, 0x37]),
-        None,
-        None,
-        server_address,
-        client_address,
-        address_request,
-        address_time,
-        max_message_size,
-        request_static_routes,
-    ));
-
-    let future = client.map_err(|error| error!("Error: {}", error));
-
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("Cannot create tokio runtime");
     info!("DHCP client started");
-    tokio::run(future);
+    rt.block_on(async move {
+        #[cfg(target_os = "linux")]
+        let switchable_socket = {
+            let buffer_capacity = std::cmp::max(BUFFER_WRITE_CAPACITY, BUFFER_READ_CAPACITY);
+            linux::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT, buffer_capacity)
+                .expect("Cannot create switchable socket")
+        };
+        #[cfg(not(target_os = "linux"))]
+        let switchable_socket = dummy::switchable_udp_socket(iface_str, DHCP_PORT_CLIENT)
+            .expect("Cannot create switchable socket");
+
+        let dhcp_framed = DhcpFramed::new(switchable_socket).expect("Cannot create DhcpFramed");
+
+        let request_static_routes = false;
+
+        let client = super_client(Client::new(
+            dhcp_framed,
+            MacAddress::new([0x00, 0x0c, 0x29, 0x13, 0x0e, 0x37]),
+            None,
+            None,
+            server_address,
+            client_address,
+            address_request,
+            address_time,
+            max_message_size,
+            request_static_routes,
+        ));
+
+        let result = client.await;
+        info!("Result: {:?}", result);
+    });
 }
