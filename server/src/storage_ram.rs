@@ -3,8 +3,8 @@
 
 use std::{collections::HashMap, net::Ipv4Addr};
 
-use lease::Lease;
-use storage::{Error, Storage};
+use crate::lease::Lease;
+use crate::storage::{Error, Storage};
 
 pub struct RamStorage {
     /// `IPv4` to `client_id` mapping.

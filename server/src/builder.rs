@@ -4,7 +4,7 @@ use std::net::Ipv4Addr;
 
 use dhcp_protocol::*;
 
-use database::{Ack, Error, Offer};
+use crate::database::{Ack, Error, Offer};
 
 /// Builds common server messages with some parameters.
 pub struct MessageBuilder {

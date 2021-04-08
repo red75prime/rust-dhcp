@@ -19,6 +19,8 @@ extern crate futures;
 extern crate hostname;
 extern crate tokio;
 #[macro_use]
+extern crate pin_project;
+#[macro_use]
 extern crate failure;
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 extern crate etherparse;

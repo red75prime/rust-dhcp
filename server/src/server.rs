@@ -1,6 +1,6 @@
 //! The main DHCP server module.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{convert::Infallible, net::{IpAddr, Ipv4Addr, SocketAddr}};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -15,10 +15,11 @@ use dhcp_protocol::{Message, MessageType, DHCP_PORT_CLIENT, DHCP_PORT_SERVER};
 
 #[cfg(any(target_os = "freebsd", target_os = "macos"))]
 use bpf::BpfData;
-use builder::MessageBuilder;
-use database::{Database, Error::LeaseInvalid};
-use storage::Storage;
+use crate::builder::MessageBuilder;
+use crate::database::{Database, Error::LeaseInvalid};
+use crate::storage::Storage;
 use tokio::net::UdpSocket;
+use pin_project::pin_project;
 
 /// Some options like `cpu_pool_size` are OS-specific, so the builder pattern is required.
 pub struct ServerBuilder<S>
@@ -114,7 +115,7 @@ where
     }
 
     /// Consumes the builder and returns the built server.
-    pub fn finish(self) -> io::Result<Server<S>> {
+    pub async fn finish(self) -> io::Result<Server<S>> {
         Server::new(
             self.server_ip_address,
             self.iface_name,
@@ -127,7 +128,7 @@ where
             self.static_routes,
             self.classless_static_routes,
             self.bpf_num_threads_size,
-        )
+        ).await
     }
 
     /// Consumes the builder and returns the built server.
@@ -156,6 +157,7 @@ where
 
 pub type Server<S> = GenericServer<S, DhcpFramed<UdpSocket>>;
 /// The struct implementing the `Future` trait.
+#[pin_project]
 pub struct GenericServer<S, C>
 where
     S: Storage,
@@ -163,6 +165,7 @@ where
         Sink<DhcpSinkItem, Error = io::Error>,
 {
     /// The server UDP socket.
+    #[pin]
     socket: C,
     /// The IP address the server is hosted on.
     server_ip_address: Ipv4Addr,
@@ -175,6 +178,7 @@ where
     database: Database<S>,
     /// The asynchronous `netsh` processes used to work with ARP entries.
     #[cfg(target_os = "windows")]
+    #[pin]
     arp: Option<dhcp_arp::Arp>,
     /// The object encapsulating BPF functionality.
     #[cfg(any(target_os = "freebsd", target_os = "macos"))]
@@ -187,7 +191,7 @@ where
 {
     /// Creates a server future.
     #[allow(unused_variables)]
-    fn new(
+    async fn new(
         server_ip_address: Ipv4Addr,
         iface_name: String,
         static_address_range: (Ipv4Addr, Ipv4Addr),
@@ -201,7 +205,7 @@ where
         bpf_num_threads_size: Option<usize>,
     ) -> io::Result<Self> {
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), DHCP_PORT_SERVER);
-        let socket = UdpSocket::bind(&addr)?;
+        let socket = UdpSocket::bind(&addr).await?;
         socket.set_broadcast(true)?;
 
         // Older Rust versions hadn't allowed method calls on type aliases
@@ -291,7 +295,7 @@ where
     /// Performs the ARP query in hardware unicast cases and sets the `arp` field
     /// if ARP processing is expected to be too long for the tokio reactor.
     /// The bool flag is `true` if hardware unicast is required.
-    fn destination(&mut self, request: &Message, response: &Message) -> (Ipv4Addr, bool) {
+    fn destination(self: &mut Pin<&mut Self>, request: &Message, response: &Message) -> (Ipv4Addr, bool) {
         if !request.client_ip_address.is_unspecified() {
             return (request.client_ip_address, false);
         }
@@ -309,11 +313,11 @@ where
             match dhcp_arp::add(
                 request.client_hardware_address,
                 response.your_ip_address,
-                self.iface_name.to_owned(),
+                self.as_mut().project().iface_name.to_owned(),
             ) {
                 #[cfg(target_os = "windows")]
                 Ok(result) => {
-                    self.arp = Some(result);
+                    self.as_mut().project().arp.set(Some(result));
                 }
                 Err(error) => error!("ARP error: {:?}", error),
                 _ => {}
@@ -336,7 +340,7 @@ where
     /// Sends a response using OS-specific features.
     #[allow(unused)]
     fn send_response(
-        &mut self,
+        mut self: &mut Pin<&mut Self>,
         response: Message,
         destination: Ipv4Addr,
         hw_unicast: bool,
@@ -347,7 +351,7 @@ where
         #[cfg(any(target_os = "freebsd", target_os = "macos"))]
         {
             if hw_unicast {
-                return self.bpf_data.send(
+                return self.as_mut().project().bpf_data.send(
                     &self.server_ip_address,
                     &destination,
                     response,
@@ -357,8 +361,22 @@ where
         }
 
         let destination = SocketAddr::new(IpAddr::V4(destination), DHCP_PORT_CLIENT);
-        start_send!(self.socket, destination, response, max_size);
+        match self.as_mut().project().socket.start_send((destination, (response, max_size))) {
+            Ok(()) => {},
+            Err(error) => {
+                warn!("Socket error: {}", error);
+                return Err(error);
+            },
+        };
         Ok(())
+    }
+
+    fn database<'a>(self: &'a mut Pin<&mut Self>) -> &'a mut Database<S> {
+        self.as_mut().project().database
+    }
+
+    fn builder<'a>(self: &'a mut Pin<&mut Self>) -> &'a mut MessageBuilder {
+        self.as_mut().project().builder
     }
 }
 
@@ -368,19 +386,19 @@ where
     C: Stream<Item = Result<DhcpStreamItem, io::Error>> +
         Sink<DhcpSinkItem, Error = io::Error>,
 {
-    type Output = ();
+    type Output = Result<Infallible, io::Error>;
 
     /// Works infinite time.
     ///
     /// [RFC 2131](https://tools.ietf.org/html/rfc2131)
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             #[cfg(target_os = "windows")]
             {
-                poll_arp!(self.arp);
+                poll_arp!(self, arp);
             }
-            poll_complete!(self.socket);
-            let (addr, request) = poll!(self.socket);
+            poll_flush!(self, socket, cx);
+            let (addr, request) = poll_stream!(self, socket, cx);
             log_receive!(request, addr.ip());
             let dhcp_message_type = validate!(request, addr.ip());
 
@@ -419,7 +437,7 @@ where
                     the system administrator.
                     */
 
-                    match self.database.allocate(
+                    match self.database().allocate(
                         client_id,
                         request.options.address_time,
                         request.options.address_request,
@@ -463,7 +481,7 @@ where
                         let address = expect!(request.options.address_request);
                         let lease_time = request.options.address_time;
 
-                        match self.database.assign(client_id, &address, lease_time) {
+                        match self.database().assign(client_id, &address, lease_time) {
                             Ok(ack) => {
                                 let response = self.builder.dhcp_request_to_ack(&request, &ack);
                                 let (destination, hw_unicast) =
@@ -495,7 +513,7 @@ where
                                 warn!("Address checking error: {}", error.to_string());
                                 if let LeaseInvalid = error {
                                     let response =
-                                        self.builder.dhcp_request_to_nak(&request, &error);
+                                        self.builder().dhcp_request_to_nak(&request, &error);
                                     let destination = Ipv4Addr::new(255, 255, 255, 255);
                                     self.send_response(response, destination, false, max_size)?;
                                 }
@@ -512,11 +530,11 @@ where
                     // the client is in the RENEWING or REBINDING state
                     let lease_time = request.options.address_time;
                     match self
-                        .database
+                        .database()
                         .renew(client_id, &request.client_ip_address, lease_time)
                     {
                         Ok(ack) => {
-                            let response = self.builder.dhcp_request_to_ack(&request, &ack);
+                            let response = self.builder().dhcp_request_to_ack(&request, &ack);
                             let (destination, hw_unicast) = self.destination(&request, &response);
                             self.send_response(response, destination, hw_unicast, max_size)?;
                         }
@@ -534,7 +552,7 @@ where
                     */
 
                     let address = expect!(request.options.address_request);
-                    match self.database.freeze(&address) {
+                    match self.database().freeze(&address) {
                         Ok(_) => info!("Address {} has been marked as unavailable", address),
                         Err(error) => warn!("Address freezing error: {}", error.to_string()),
                     };
@@ -549,7 +567,7 @@ where
                     */
 
                     let address = request.client_ip_address;
-                    match self.database.deallocate(client_id, &address) {
+                    match self.database().deallocate(client_id, &address) {
                         Ok(_) => info!("Address {} has been released", address),
                         Err(error) => warn!("Address releasing error: {}", error.to_string()),
                     };

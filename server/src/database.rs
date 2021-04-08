@@ -2,8 +2,8 @@
 
 use std::{cmp, net::Ipv4Addr};
 
-use lease::Lease;
-use storage::{self, Storage};
+use crate::lease::Lease;
+use crate::storage::{self, Storage};
 
 /// T1 RFC 2131 suggestion.
 const RENEWAL_TIME_FACTOR: f64 = 0.5;
@@ -448,7 +448,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use storage_ram::RamStorage;
+    use crate::storage_ram::RamStorage;
 
     #[test]
     fn reuses_client_current_address() {

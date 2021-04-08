@@ -7,7 +7,6 @@ use std::{
 };
 
 use eui48::{MacAddress, EUI48LEN};
-use futures_cpupool::CpuPool;
 use ifcontrol::{self, Iface};
 use netif_bpf::Bpf;
 
@@ -20,8 +19,6 @@ const DEFAULT_PACKET_BUFFER_SIZE: usize = 8192;
 pub struct BpfData {
     /// The BPF object used to send hardware unicasts.
     bpf: Bpf,
-    /// The CPU pool used to send hardware unicasts.
-    cpu_pool: CpuPool,
     /// The interface MAC address.
     iface_hw_addr: MacAddress,
 }
@@ -36,7 +33,6 @@ impl BpfData {
     pub fn new(iface_name: &str, bpf_num_threads_size: Option<usize>) -> io::Result<Self> {
         Ok(BpfData {
             bpf: Bpf::new(iface_name)?,
-            cpu_pool: CpuPool::new(bpf_num_threads_size.unwrap_or(DEFAULT_BPF_NUM_THREADS_SIZE)),
             iface_hw_addr: {
                 let iface = Iface::find_by_name(iface_name).map_err(|error| match error {
                     ifcontrol::IfError::NotFound => {
@@ -96,17 +92,15 @@ impl BpfData {
         )?;
 
         let mut bpf = self.bpf.clone();
-        self.cpu_pool
-            .clone()
-            .spawn_fn(move || {
+        // Detach the task and don't wait for its end
+        // tokio::task::JoinHandle detaches its task on drop
+        let _ = tokio::task::spawn_blocking(move || {
                 if let Err(error) = bpf.write_all(&packet) {
                     error!("BPF sending error: {}", error);
                 } else {
                     trace!("Response has been sent via BPF");
-                }
-                Ok::<(), ()>(())
-            })
-            .forget();
+                };
+            });
 
         Ok(())
     }

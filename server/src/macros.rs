@@ -24,19 +24,19 @@ macro_rules! log_send(
 );
 
 /// Just to move some code from the overwhelmed `poll` method.
-macro_rules! poll (
-    ($socket:expr) => (
-        match $socket.poll() {
-            Ok(Async::Ready(Some(data))) => data,
-            Ok(Async::Ready(None)) => {
-                warn!("Received an invalid packet");
-                continue;
-            }
-            Ok(Async::NotReady) => return Ok(Async::NotReady),
-            Err(error) => {
+macro_rules! poll_stream (
+    ($self:ident, $stream:ident, $cx:expr) => (
+        match $self.as_mut().project().$stream.poll_next($cx) {
+            Poll::Ready(Some(Ok(data))) => data,
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Some(Err(error))) => {
                 warn!("Socket error: {}", error);
-                return Err(error);
+                return Poll::Ready(Err(error));
             },
+            Poll::Ready(None) => {
+                error!("Socket stream unexpectedly ended");
+                return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Socket stream unexpectedly ended")));
+            }
         };
     );
 );
@@ -54,31 +54,15 @@ macro_rules! validate (
     );
 );
 
-/// By design the pending message must be flushed before sending the next one.
-macro_rules! start_send (
-    ($socket:expr, $destination:expr, $message:expr, $max_size:expr) => (
-        match $socket.start_send(($destination, ($message, $max_size))) {
-            Ok(AsyncSink::Ready) => {},
-            Ok(AsyncSink::NotReady(_)) => {
-                panic!("Must wait for poll_complete first");
-            },
-            Err(error) => {
-                warn!("Socket error: {}", error);
-                return Err(error);
-            },
-        }
-    );
-);
-
 /// Just to move some code from the overwhelmed `poll` method.
-macro_rules! poll_complete (
-    ($socket:expr) => (
-        match $socket.poll_complete() {
-            Ok(Async::Ready(_)) => {},
-            Ok(Async::NotReady) => return Ok(Async::NotReady),
-            Err(error) => {
+macro_rules! poll_flush (
+    ($self:ident, $sink:ident, $cx:expr) => (
+        match $self.as_mut().project().$sink.poll_flush($cx) {
+            Poll::Ready(Ok(())) => {},
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Err(error)) => {
                 warn!("Socket error: {}", error);
-                return Err(error);
+                return Poll::Ready(Err(error));
             },
         }
     );

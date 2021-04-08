@@ -9,7 +9,7 @@ use std::{
 };
 
 use eui48::MacAddress;
-use tokio::prelude::*;
+use futures::{Future, Sink, Stream, FutureExt, StreamExt};
 
 use dhcp_client::{Client, Command};
 use dhcp_server::GenericServer;
@@ -18,13 +18,18 @@ use dhcp_framed::{
 };
 use dhcp_protocol::{MessageType};
 use switchable_socket::{ModeSwitch, SocketMode};
-use futures::sync::mpsc::{self, Sender, Receiver};
-use futures::{Poll, Async, AsyncSink, StartSend};
+use futures::channel::mpsc::{self, Sender, Receiver};
+use std::task::{Context, Poll};
+use std::pin::Pin;
+use pin_project::pin_project;
 
+#[pin_project]
 struct UnreliableChannel<F> {
     filter: F,
     mode: SocketMode,
+    #[pin]
     sender: Sender<DhcpStreamItem>,
+    #[pin]
     receiver: Receiver<DhcpStreamItem>,
 }
 
@@ -32,55 +37,48 @@ impl<F> Stream for UnreliableChannel<F>
 where
     F: 'static + Send + Sync + FnMut(&DhcpStreamItem) -> bool,
 {
-    type Item = DhcpStreamItem;
-    type Error = io::Error;
+    type Item = Result<DhcpStreamItem, io::Error>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let item = match self.receiver.poll() {
-            Ok(Async::NotReady) => {
-                return Ok(Async::NotReady);
-            }
-            Ok(Async::Ready(item)) => {
-                item
-            }
-            Err(_) => {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"));
-            }
-        };
-        if let Some(item) = item {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            let item = match self.as_mut().project().receiver.poll_next(cx) {
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+                Poll::Ready(Some(item)) => {
+                    item
+                }
+                Poll::Ready(None) => {
+                    return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"))));
+                }
+            };
             info!("Filtering {:?}", item.1.options.dhcp_message_type);
-            if !(self.filter)(&item) {
+            if !(self.as_mut().project().filter)(&item) {
                 warn!("Dropping {}", item.1);
-                Ok(Async::NotReady)
+                // continue
             } else {
-                Ok(Async::Ready(Some(item)))
+                return Poll::Ready(Some(Ok(item)));
             }
-        } else {
-            Ok(Async::Ready(None))
         }
     }
 }
 
-impl<F> Sink for UnreliableChannel<F>
+impl<F> Sink<DhcpSinkItem> for UnreliableChannel<F>
 where
     F: 'static + Send + Sync + FnMut(&DhcpStreamItem) -> bool,
 {
-    type SinkItem = DhcpSinkItem;
-    type SinkError = io::Error;
+    type Error = io::Error;
 
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
+    fn start_send(mut self: Pin<&mut Self>, item: DhcpSinkItem) -> io::Result<()> {
         let (socket, (msg, size)) = item;
         let si = (socket, msg);
-        if !(self.filter)(&si) {
+        if !(self.as_mut().project().filter)(&si) {
             warn!("Dropping {}", si.1);
-            return Ok(AsyncSink::Ready);
+            return Ok(());
         }
         match self.sender.start_send(si) {
-            Ok(AsyncSink::NotReady((socket, msg))) => {
-                Ok(AsyncSink::NotReady((socket, (msg, size))))
-            }
-            Ok(AsyncSink::Ready) => {
-                Ok(AsyncSink::Ready)
+            Ok(()) => {
+                Ok(())
             }
             Err(_) => {
                 Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"))
@@ -88,24 +86,30 @@ where
         }
     }
 
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        self.sender.poll_complete().map_err(|_| {
-            io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed")
-        })
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().sender.poll_ready(cx).map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().sender.poll_flush(cx).map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.project().sender.poll_close(cx).map_err(|_| io::Error::new(io::ErrorKind::UnexpectedEof, "Channel closed"))
     }
 }
 
 impl<F> ModeSwitch for UnreliableChannel<F> {
-    fn switch_to(&mut self, mode: SocketMode) -> Result<(), io::Error> {
-        self.mode = mode;
+    fn switch_to(self: Pin<&mut Self>, mode: SocketMode) -> Result<(), io::Error> {
+        *self.project().mode = mode;
         Ok(())
     }
 
-    fn mode(&self) -> SocketMode {
-        self.mode
+    fn mode(self: Pin<&mut Self>) -> SocketMode {
+        *self.project().mode
     }
 
-    fn device_name(&self) -> &str {
+    fn device_name(self: Pin<&mut Self>) -> &str {
         "dummy"
     }
 }
@@ -137,7 +141,7 @@ where
     )
 }
 
-fn client<F>(channel: UnreliableChannel<F>) -> impl Future<Item = (), Error = ()>
+fn client<F>(channel: UnreliableChannel<F>) -> impl Future<Output = ()>
 where
     F: 'static + Send + Sync + FnMut(&DhcpStreamItem) -> bool,
 {
@@ -163,17 +167,25 @@ where
         request_static_routes,
     );
 
-    let future = client
-        .map_err(|error| error!("Error: {}", error))
-        .for_each(|msg| {
-            info!("Client: {:?}", msg);
-            Ok(())
-        });
-
-    future
+    async move {
+        futures::pin_mut!(client);
+        loop {
+            match client.next().await {
+                Some(Err(error)) => {
+                    error!("Error: {}", error);
+                }
+                Some(Ok(msg)) => {
+                    info!("Client: {:?}", msg);
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+    }
 }
 
-fn server<F>(channel: UnreliableChannel<F>) -> impl Future<Item = (), Error = ()>
+fn server<F>(channel: UnreliableChannel<F>) -> impl Future<Output = ()>
 where
     F: 'static + Send + Sync + FnMut(&DhcpStreamItem) -> bool,
 {
@@ -211,12 +223,16 @@ where
         ],
     );
     let server = builder.finish_with_channel(channel).expect("Server creating error");
-    let future = server.map_err(|error| error!("Error: {}", error));
-    future
+    async move {
+        if let Err(e) = server.await {
+            error!("DHCP server terminated with {:?}", e);
+        }
+    }
 }
 
 
-fn main() {
+#[tokio::main]
+async fn main() {
     std::env::set_var("RUST_BACKTRACE", "1");
     std::env::set_var("RUST_LOG", "info,client=trace,dhcp_client=trace");
     env_logger::init();
@@ -240,8 +256,6 @@ fn main() {
     });
     let client = client(client_chn);
     let server = server(server_chn);
-    tokio::run(future::lazy(move || {
-        tokio::spawn(server);
-        client
-    }));
+    tokio::spawn(server);
+    client.await
 }
