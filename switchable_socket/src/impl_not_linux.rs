@@ -1,6 +1,7 @@
-use futures::Poll;
+use std::task::Poll;
 use std::net::SocketAddrV4;
-use tokio::{io, reactor::Handle};
+use std::io;
+use tokio::runtime::Handle;
 
 pub struct RawUdpSocketV4 {}
 
@@ -14,11 +15,11 @@ impl RawUdpSocketV4 {
         unimplemented!()
     }
 
-    pub fn poll_recv_from(&mut self, _buf: &mut [u8]) -> Poll<(usize, SocketAddrV4), io::Error> {
+    pub fn poll_recv_from(&mut self, _buf: &mut [u8]) -> Poll<Result<(usize, SocketAddrV4), io::Error>> {
         unimplemented!()
     }
 
-    pub fn poll_send_to(&mut self, _buf: &[u8], _target: &SocketAddrV4) -> Poll<usize, io::Error> {
+    pub fn poll_send_to(&mut self, _buf: &[u8], _target: &SocketAddrV4) -> Poll<Result<usize, io::Error>> {
         unimplemented!()
     }
 }

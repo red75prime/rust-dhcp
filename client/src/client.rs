@@ -3,7 +3,7 @@
 use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, pin::Pin, task::{Context, Poll}};
 
 use eui48::MacAddress;
-use futures::{Future, Sink, Stream};
+use futures::{Sink, Stream};
 use hostname;
 use pin_project::pin_project;
 use tokio::io;

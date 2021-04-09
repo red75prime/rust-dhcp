@@ -1,18 +1,15 @@
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate futures;
 
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr},
 };
 
 use eui48::MacAddress;
-use futures::{Future, Sink, Stream, FutureExt, StreamExt};
+use futures::{Future, Sink, Stream, StreamExt};
 
-use dhcp_client::{Client, Command};
-use dhcp_server::GenericServer;
+use dhcp_client::Client;
 use dhcp_framed::{
     DhcpSinkItem, DhcpStreamItem
 };
@@ -70,7 +67,7 @@ where
     type Error = io::Error;
 
     fn start_send(mut self: Pin<&mut Self>, item: DhcpSinkItem) -> io::Result<()> {
-        let (socket, (msg, size)) = item;
+        let (socket, (msg, _size)) = item;
         let si = (socket, msg);
         if !(self.as_mut().project().filter)(&si) {
             warn!("Dropping {}", si.1);
@@ -146,7 +143,7 @@ where
     F: 'static + Send + Sync + FnMut(&DhcpStreamItem) -> bool,
 {
 
-    let iface_str = "ens33";
+    // let iface_str = "ens33";
 
     let server_address = None;
     let client_address = None;

@@ -11,17 +11,15 @@ extern crate dhcp_server;
 
 use std::net::Ipv4Addr;
 
-use futures::Future;
-
 use dhcp_protocol::DHCP_PORT_SERVER;
 
 #[tokio::main]
 async fn main() {
     std::env::set_var("RUST_BACKTRACE", "full");
-    std::env::set_var("RUST_LOG", "server=trace,dhcp_server=trace");
+    std::env::set_var("RUST_LOG", "server=trace,dhcp_server=trace,dhcp_arp=trace");
     env_logger::init();
     let server_ip_address = Ipv4Addr::new(192, 168, 0, 2);
-    let iface_name = "eth0".to_string();
+    let iface_name = "Ethernet".to_string();
 
     #[allow(unused_mut)]
     let mut builder = dhcp_server::ServerBuilder::new(

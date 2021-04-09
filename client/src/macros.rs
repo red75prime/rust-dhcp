@@ -82,21 +82,6 @@ macro_rules! check_message_type (
 );
 
 /// Just to move some code from the overwhelmed `poll` method.
-macro_rules! poll_delay (
-    ($delay:expr, $cx:expr) => (
-        if let Some(delay) = $delay.as_pin_mut() {
-            match delay.poll($cx) {
-                Poll::Ready(()) => {},
-                Poll::Pending => return Poll::Pending,
-//                Err(error) => panic!("Timer error: {}", error),
-            }
-        } else {
-            panic!("A bug in the timer setting logic");
-        }
-    );
-);
-
-/// Just to move some code from the overwhelmed `poll` method.
 macro_rules! poll_backoff (
     ($poll_result:expr) => (
         match $poll_result {

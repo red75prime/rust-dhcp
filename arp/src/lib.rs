@@ -14,8 +14,6 @@ extern crate libc;
 #[cfg(target_os = "linux")]
 #[macro_use]
 extern crate nix;
-#[cfg(target_os = "windows")]
-extern crate tokio_process;
 
 use std::net::Ipv4Addr;
 
@@ -31,13 +29,7 @@ impl From<os::Error> for Error {
     }
 }
 
-#[cfg(target_os = "linux")]
 pub type Arp = ();
-#[cfg(target_os = "windows")]
-pub type Arp = (
-    Option<tokio_process::OutputAsync>,
-    Option<tokio_process::OutputAsync>,
-);
 
 /// The facade function choosing the OS implementation.
 pub fn add(hwaddr: MacAddress, ip: Ipv4Addr, iface: String) -> Result<Arp, Error> {

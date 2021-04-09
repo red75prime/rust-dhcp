@@ -2,13 +2,18 @@
 name = "dhcp-arp"
 version = "0.1.0"
 authors = ["hedgar"]
+edition = "2018"
 
 [dependencies]
 eui48 = "0.4.1"
+log = "0.4.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.43"
 nix = "0.13.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-tokio = { version = "1.4", features = ["process"] }
+windows = "0.7.0"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+windows = "0.7.0"

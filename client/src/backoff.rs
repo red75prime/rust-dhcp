@@ -18,7 +18,7 @@
 //! MAY provide an indication of retransmission attempts to the user as
 //! an indication of the progress of the configuration process.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use std::task::{Context, Poll};
 use futures::{ready, Future, Stream};

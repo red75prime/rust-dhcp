@@ -176,10 +176,6 @@ where
     builder: MessageBuilder,
     /// The DHCP database using a persistent storage object.
     database: Database<S>,
-    /// The asynchronous `netsh` processes used to work with ARP entries.
-    #[cfg(target_os = "windows")]
-    #[pin]
-    arp: Option<dhcp_arp::Arp>,
     /// The object encapsulating BPF functionality.
     #[cfg(any(target_os = "freebsd", target_os = "macos"))]
     bpf_data: BpfData,
@@ -232,8 +228,6 @@ where
             iface_name: iface_name.to_owned(),
             builder,
             database,
-            #[cfg(target_os = "windows")]
-            arp: None,
             #[cfg(any(target_os = "freebsd", target_os = "macos"))]
             bpf_data: BpfData::new(&iface_name, bpf_num_threads_size)?,
         })
@@ -283,8 +277,6 @@ where
             iface_name: iface_name.to_owned(),
             builder,
             database,
-            #[cfg(target_os = "windows")]
-            arp: None,
             #[cfg(any(target_os = "freebsd", target_os = "macos"))]
             bpf_data: BpfData::new(&iface_name, bpf_num_threads_size)?,
         })
@@ -315,10 +307,6 @@ where
                 response.your_ip_address,
                 self.as_mut().project().iface_name.to_owned(),
             ) {
-                #[cfg(target_os = "windows")]
-                Ok(result) => {
-                    self.as_mut().project().arp.set(Some(result));
-                }
                 Err(error) => error!("ARP error: {:?}", error),
                 _ => {}
             }
@@ -393,10 +381,6 @@ where
     /// [RFC 2131](https://tools.ietf.org/html/rfc2131)
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
-            #[cfg(target_os = "windows")]
-            {
-                poll_arp!(self, arp);
-            }
             poll_flush!(self, socket, cx);
             let (addr, request) = poll_stream!(self, socket, cx);
             log_receive!(request, addr.ip());
