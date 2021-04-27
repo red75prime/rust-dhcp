@@ -27,6 +27,7 @@ impl MakeSocket for MakeUdp {
         let socket = UdpBuilder::new_v4()?;
         socket.reuse_address(true)?;
         let socket = socket.bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), port))?;
+        socket.set_nonblocking(true)?;
         // Bind to interface
         bind_to_device_raw(socket.as_raw_fd(), iface)?;
         let socket = UdpSocket::from_std(socket)?;
